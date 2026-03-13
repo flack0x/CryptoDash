@@ -14,7 +14,6 @@ async function getLatestMood(): Promise<MarketMood | null> {
 }
 
 async function getAlerts(): Promise<IntelligenceAlert[]> {
-  // Try last 24h first, fall back to latest 20 ever
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data } = await supabase
     .from("intelligence_alerts")
@@ -49,22 +48,26 @@ async function getTrending(): Promise<(TrendingCoin & { coin?: Coin })[]> {
     .select("*")
     .eq("ts", latestTs)
     .order("rank", { ascending: true })
-    .limit(15);
+    .limit(30);
 
   if (!data || data.length === 0) return [];
 
-  const coinIds = [...new Set(data.map((t) => t.coin_id))];
+  // Filter out raw DEX addresses — only show coins with real names
+  const filtered = data.filter((t) => !t.coin_id.startsWith("dex:"));
+
+  const coinIds = [...new Set(filtered.map((t) => t.coin_id))];
+  if (coinIds.length === 0) return [];
+
   const { data: coins } = await supabase
     .from("coins")
     .select("id, symbol, name")
     .in("id", coinIds);
   const coinMap = new Map((coins ?? []).map((c) => [c.id, c]));
 
-  return data.map((t) => ({ ...t, coin: coinMap.get(t.coin_id) }));
+  return filtered.slice(0, 15).map((t) => ({ ...t, coin: coinMap.get(t.coin_id) }));
 }
 
 async function getMovers(): Promise<{ gainers: (Snapshot & { coin?: Coin })[]; losers: (Snapshot & { coin?: Coin })[] }> {
-  // Get the most recent snapshot batch
   const { data: latest } = await supabase
     .from("snapshots")
     .select("ts")
@@ -85,7 +88,6 @@ async function getMovers(): Promise<{ gainers: (Snapshot & { coin?: Coin })[]; l
 
   if (!data || data.length === 0) return { gainers: [], losers: [] };
 
-  // Deduplicate: keep latest snapshot per coin
   const seen = new Set<string>();
   const unique: Snapshot[] = [];
   for (const s of data) {
@@ -123,8 +125,15 @@ async function getNarratives(): Promise<Narrative[]> {
   return data ?? [];
 }
 
+// Common English words that get false-matched as coin names
+const NOISE_WORDS = new Set([
+  "just", "cash", "next", "new", "now", "one", "any", "get", "can", "all",
+  "day", "time", "way", "out", "back", "real", "link", "long", "not", "how",
+  "big", "top", "pay", "run", "try", "win", "key", "free", "hot", "safe",
+  "moon", "pump", "buy", "sell", "hold", "bear", "bull", "rug", "dip",
+]);
+
 async function getSocialBuzz(): Promise<SocialBuzz[]> {
-  // Get social signals from last 6 hours, aggregate by coin
   const since = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
   const { data } = await supabase
     .from("social_signals")
@@ -135,9 +144,13 @@ async function getSocialBuzz(): Promise<SocialBuzz[]> {
 
   if (!data || data.length === 0) return [];
 
-  // Aggregate by coin_id
+  // Aggregate by coin_id, filtering out DEX addresses and noise words
   const map = new Map<string, { mentions: number; sentimentSum: number; sentimentCount: number; sources: Set<string> }>();
   for (const s of data) {
+    // Skip DEX pool addresses and common English words
+    if (s.coin_id.startsWith("dex:")) continue;
+    if (NOISE_WORDS.has(s.coin_id.toLowerCase())) continue;
+
     const existing = map.get(s.coin_id);
     if (existing) {
       existing.mentions += s.mentions ?? 0;
@@ -156,12 +169,13 @@ async function getSocialBuzz(): Promise<SocialBuzz[]> {
     }
   }
 
-  // Sort by total mentions, take top 10
   const sorted = [...map.entries()]
     .sort((a, b) => b[1].mentions - a[1].mentions)
     .slice(0, 10);
 
   const coinIds = sorted.map(([id]) => id);
+  if (coinIds.length === 0) return [];
+
   const { data: coins } = await supabase
     .from("coins")
     .select("id, symbol, name")
@@ -178,7 +192,6 @@ async function getSocialBuzz(): Promise<SocialBuzz[]> {
 }
 
 async function getWhaleActivity(): Promise<WhaleTransaction[]> {
-  // Latest whale transactions
   const { data } = await supabase
     .from("whale_transactions")
     .select("id, wallet_address, coin_id, token_symbol, amount, amount_usd, direction, label, entity_type, ts")

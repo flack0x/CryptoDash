@@ -16,7 +16,10 @@ export default function WhaleActivity({ transactions }: { transactions: WhaleTra
         Whale Activity
       </h2>
       {transactions.length === 0 ? (
-        <p className="text-gray-500">No whale transactions tracked yet. Set ETHERSCAN_API_KEY to enable.</p>
+        <div className="text-gray-500 text-sm space-y-1">
+          <p>No whale movements detected in tracked wallets.</p>
+          <p className="text-gray-600 text-xs">Monitoring 40 wallets (exchanges, VCs, funds). Data appears when large token transfers occur.</p>
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
