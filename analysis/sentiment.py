@@ -46,7 +46,7 @@ _SYMBOL_MAP = {
 }
 
 # Short symbols that are common English words — require $ prefix
-_AMBIGUOUS_SYMBOLS = {"OP", "W", "AR", "PI", "SUI", "SEI", "NEAR"}
+_AMBIGUOUS_SYMBOLS = {"OP", "W", "AR", "PI", "SUI", "SEI", "NEAR", "ETC"}
 
 # Symbols/names loaded from DB that are common English words — never auto-match
 # These are real coins but their tickers cause massive false positives on social media

@@ -316,9 +316,18 @@ async function getWhaleActivity(): Promise<WhaleTransaction[]> {
     .limit(100);
   if (!data || data.length === 0) return [];
 
+  // Deduplicate by wallet+token+amount+direction (same tx collected twice)
+  const seen = new Set<string>();
+  const deduped = data.filter((tx) => {
+    const key = `${tx.wallet_address}-${tx.token_symbol}-${tx.amount}-${tx.direction}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
   // Non-stablecoin transactions first (the interesting ones), then large stablecoin moves
-  const nonStable = data.filter((tx) => !STABLECOIN_SYMBOLS.has(tx.token_symbol?.toUpperCase()));
-  const stableBig = data
+  const nonStable = deduped.filter((tx) => !STABLECOIN_SYMBOLS.has(tx.token_symbol?.toUpperCase()));
+  const stableBig = deduped
     .filter((tx) => STABLECOIN_SYMBOLS.has(tx.token_symbol?.toUpperCase()))
     .filter((tx) => (tx.amount_usd ?? 0) >= 500_000); // Only $500K+ stablecoin moves
 
