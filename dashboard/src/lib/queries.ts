@@ -251,13 +251,31 @@ async function getSocialBuzz(): Promise<SocialBuzz[]> {
     }));
 }
 
+// Stablecoin movements aren't interesting whale signals — just cash moving around
+const STABLECOIN_SYMBOLS = new Set(["USDT", "USDC", "DAI", "TUSD", "BUSD", "USDP", "FRAX", "PYUSD"]);
+
 async function getWhaleActivity(): Promise<WhaleTransaction[]> {
+  // Fetch more than needed so we can filter stablecoins and show the most interesting
   const { data } = await supabase
     .from("whale_transactions")
     .select("id, wallet_address, coin_id, token_symbol, amount, amount_usd, direction, label, entity_type, ts")
     .order("ts", { ascending: false })
-    .limit(10);
-  return data ?? [];
+    .limit(100);
+  if (!data || data.length === 0) return [];
+
+  // Split into non-stablecoin (priority) and stablecoin (filler)
+  const nonStable = data.filter((tx) => !STABLECOIN_SYMBOLS.has(tx.token_symbol?.toUpperCase()));
+  const stableOnly = data
+    .filter((tx) => STABLECOIN_SYMBOLS.has(tx.token_symbol?.toUpperCase()))
+    .filter((tx) => (tx.amount_usd ?? 0) >= 100_000); // Only large stablecoin moves
+
+  // Show non-stablecoin first (sorted by value), then fill with large stablecoin moves
+  const sorted = [
+    ...nonStable.sort((a, b) => (b.amount_usd ?? 0) - (a.amount_usd ?? 0)),
+    ...stableOnly.sort((a, b) => (b.amount_usd ?? 0) - (a.amount_usd ?? 0)),
+  ];
+
+  return sorted.slice(0, 10);
 }
 
 export async function fetchDashboardData(): Promise<DashboardData> {
