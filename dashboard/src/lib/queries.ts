@@ -33,38 +33,38 @@ async function getAlerts(): Promise<IntelligenceAlert[]> {
 }
 
 async function getTrending(): Promise<(TrendingCoin & { coin?: Coin })[]> {
-  // Get the most recent trending batch
-  const { data: latest } = await supabase
-    .from("trending")
-    .select("ts")
-    .order("ts", { ascending: false })
-    .limit(1);
-
-  if (!latest || latest.length === 0) return [];
-
-  const latestTs = latest[0].ts;
+  // Get recent trending, excluding DEX pool addresses, from any source
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data } = await supabase
     .from("trending")
     .select("*")
-    .eq("ts", latestTs)
-    .order("rank", { ascending: true })
-    .limit(30);
+    .gte("ts", since)
+    .order("ts", { ascending: false })
+    .limit(200);
 
   if (!data || data.length === 0) return [];
 
-  // Filter out raw DEX addresses — only show coins with real names
-  const filtered = data.filter((t) => !t.coin_id.startsWith("dex:"));
+  // Filter out DEX addresses, deduplicate by coin_id (keep most recent)
+  const seen = new Set<string>();
+  const filtered: typeof data = [];
+  for (const t of data) {
+    if (t.coin_id.startsWith("dex:")) continue;
+    if (seen.has(t.coin_id)) continue;
+    seen.add(t.coin_id);
+    filtered.push(t);
+  }
 
-  const coinIds = [...new Set(filtered.map((t) => t.coin_id))];
-  if (coinIds.length === 0) return [];
+  const top = filtered.slice(0, 15);
+  if (top.length === 0) return [];
 
+  const coinIds = [...new Set(top.map((t) => t.coin_id))];
   const { data: coins } = await supabase
     .from("coins")
     .select("id, symbol, name")
     .in("id", coinIds);
   const coinMap = new Map((coins ?? []).map((c) => [c.id, c]));
 
-  return filtered.slice(0, 15).map((t) => ({ ...t, coin: coinMap.get(t.coin_id) }));
+  return top.map((t, i) => ({ ...t, rank: i + 1, coin: coinMap.get(t.coin_id) }));
 }
 
 async function getMovers(): Promise<{ gainers: (Snapshot & { coin?: Coin })[]; losers: (Snapshot & { coin?: Coin })[] }> {
