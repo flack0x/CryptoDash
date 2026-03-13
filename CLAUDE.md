@@ -9,14 +9,12 @@ Two inputs: what the crowd thinks (social sentiment) + what informed actors do (
 ## Architecture
 
 ```
-Python Backend (runs locally)
-  ├── collectors/     → 9 data collectors on schedules
-  ├── analysis/       → smart money intelligence engine
-  └── output/         → CLI display, intelligence briefs
+GitHub Actions (cron every 15 min — primary, runs 24/7 for free)
+  └── python main.py  → 7 collectors + analysis engine
          ↕
     Supabase (PostgreSQL, ap-south-1)
          ↕
-Next.js Dashboard (deployed on Vercel)
+Next.js Dashboard (deployed on Vercel, auto-deploys from GitHub)
   └── dashboard/      → reads Supabase via anon key (RLS read-only)
 ```
 
@@ -63,10 +61,12 @@ git add -A && git commit -m "message" && git push
 
 ### GitHub Actions (Primary — runs 24/7 for free)
 - `.github/workflows/collect.yml` runs every 15 min on cron
+- **Actual interval is ~30-60 min** — GitHub throttles cron on public repos, doesn't guarantee exact timing. This is normal and sufficient.
 - Public repo = unlimited free GitHub Actions minutes
 - All secrets stored as GitHub repository secrets (SUPABASE_URL, SUPABASE_SERVICE_KEY, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, ETHERSCAN_API_KEY)
 - Manual trigger: `gh workflow run collect.yml` or from GitHub UI
-- Each run: installs deps (cached), runs all collectors + analysis (~3 min)
+- Each run: installs deps (pip cached), runs all collectors + analysis (~3 min)
+- **Confirmed working as of 2026-03-13**: cron fires automatically, all collectors succeed, ~91 reddit signals + 70 4chan signals + 250 CoinGecko coins per run
 
 ### Local Daemon Mode (backup — only if needed)
 - `python main.py --daemon` or `start_collector.bat` / `stop_collector.bat`
@@ -145,8 +145,9 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 ### Dashboard Data Quality Filters
 - **Intelligence Alerts**: Enriched with price data (price, 24h change, market cap) via `EnrichedAlert` type. Only shows coins in CoinGecko top 250 with proper names.
 - **Social Buzz**: Requires $50M+ market cap. NOISE_WORDS (80+), NOISE_COIN_IDS blocklist, and coins table validation.
-- **Whale Activity**: 48h time window, sorted by value, stablecoins only shown if >= $500K.
+- **Whale Activity**: 48h time window, sorted by value, stablecoins only shown if >= $500K. Deduped by `wallet_address + token_symbol + amount + direction` in `queries.ts`.
 - **VADER Sentiment thresholds**: Bullish > 0.08, Bearish < -0.08 (lowered from 0.2 because aggregated 4chan/reddit scores cluster near zero).
+- **Narrative Momentum**: Normalized by signal count (average mentions per signal, not raw sum). Volume snapshots deduplicated per coin per period. Prevents inflation when collection periods have different run counts.
 
 ## Dashboard Components
 
@@ -182,7 +183,7 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 
 - **Coin name corruption**: 4chan/reddit collectors used to upsert `Coin(id=x, name=x, symbol=x)` overwriting CoinGecko's proper names. Fixed with `db.ensure_coins_exist()` using ON CONFLICT DO NOTHING. **Never use `db.upsert_coins()` from social collectors.**
 - **Etherscan V1 deprecated**: Whale tracker now uses V2 API at `api.etherscan.io/v2/api` with `chainid=1` parameter.
-- **Reddit set/list bug**: `_collect_subreddit()` was converting sets to lists after first subreddit, causing `.add()` to fail. Set-to-list conversion moved to `collect()` method.
+- **Reddit set serialization (TWO bugs, both fixed)**: (1) `_collect_subreddit()` was converting sets to lists after first subreddit, causing `.add()` to fail — moved set-to-list conversion to `collect()`. (2) The set-to-list conversion was placed AFTER `json.dumps()` which needs it — moved conversion BEFORE the signal-building loop. **Both must stay fixed — the conversion must happen before `json.dumps` in `collect()`.**
 - **Whale dust transactions**: Threshold raised to $10K and requires USD valuation (`amount_usd is None` → skip). Unknown tokens without price data are excluded.
 - **Social false positives**: "just", "rain", "cash", "four" etc. matched as coin names. Fixed with 80+ word NOISE_WORDS set in `queries.ts`, 60+ word `_EXCLUDED_DB_SYMBOLS`/`_EXCLUDED_DB_NAMES` sets in `sentiment.py`, word-boundary matching for short names (<7 chars), NOISE_COIN_IDS blocklist (e.g. "thetrumptoken", "aster-2"), $50M market cap minimum for Social Buzz, and requiring coins to exist in CoinGecko top 250 with proper names.
 - **Whale direction inverted for funds**: Raw "in"/"out" direction was always interpreted as exchange logic. Fixed: direction is now semantic ("buy"/"sell") based on `entity_type` — exchanges: in=sell/out=buy; funds/VCs: in=buy/out=sell. **Never store raw "in"/"out" direction — always convert to semantic "buy"/"sell".**
@@ -192,16 +193,21 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **Analysis went stale in daemon mode**: `scheduler.py` only scheduled collectors, not analysis. Fixed: added `smart_money_analysis` job running every 30 min.
 - **Vercel auto-deploy failing**: Root directory was `.` (repo root) instead of `dashboard`. Vercel couldn't find the `app` directory. Fixed via API: `rootDirectory: "dashboard"`. **Manual deploys from CLI must run from repo root, not `dashboard/`.**
 - **ETC false positive**: "etc." in text matched as Ethereum Classic. Fixed: added "ETC" to `_AMBIGUOUS_SYMBOLS` in `sentiment.py` (only matches `$ETC`).
+- **Narrative momentum inflation**: All narratives showed "Rising" +120% to +419%. Root cause: momentum summed raw mentions across ALL collection runs; recent half had more runs than older half, inflating the ratio. Fixed in `analysis/narratives.py`: normalized by signal count (average mentions per signal instead of raw sum) and deduplicated volume snapshots per coin (keep latest per period). **Never sum raw mentions across signals — always normalize by count.**
+- **Whale transaction duplicates on dashboard**: Same blockchain tx collected multiple times showed as duplicates. Fixed in `queries.ts`: dedup by `wallet_address + token_symbol + amount + direction` key.
 
 ## Known Issues & Future Work
 
 - **Whale Alert API key**: not yet configured (needs paid plan from https://whale-alert.io)
-- **Intelligence quality improves with data volume**: system needs to run continuously for days/weeks to build reliable baselines for social mention averages
+- **Intelligence quality improves with data volume**: system needs to run continuously for days/weeks to build reliable baselines for social mention averages. **GitHub Actions started 2026-03-13 ~16:00 UTC — expect reliable signals after 48-72 hours of continuous collection.**
+- **Empty hype alerts for non-ETH tokens are structurally weak**: We only track 50 Ethereum wallets. Alerts like "no whale buying detected" for DOT (Polkadot-native), HNT (Solana), etc. mean "we can't see" not "it's not happening." These should be treated with skepticism until multi-chain wallet tracking is added.
+- **CryptoCompare API intermittently returns empty data**: `[crypto_news] API returned error or no data` appears in logs occasionally. This is their API being flaky, not our code. Non-critical — other collectors cover the gap.
 - **Reddit rate limits**: Reddit API has strict rate limits; the "redittest" app is registered for personal use
 - **GeckoTerminal trending**: returns DEX pool addresses as coin_ids — filtered in dashboard queries but stored raw in DB
 - **Sentiment false positives**: `analysis/sentiment.py` has extensive exclusion lists but new common-word coins can still slip through — check Social Buzz after adding new coin data sources
+- **Narrative momentum needs data depth**: Shows 0.0% Stable when data window is < 24h (both halves of comparison window have similar or insufficient signals). Will differentiate naturally after 24-48 hours of continuous collection.
 - **Not yet built**: `output/api.py` (FastAPI endpoints), `output/dashboard.py` (Streamlit)
-- **Potential improvements**: historical price charts, portfolio tracking, alert notifications (email/telegram), more whale wallets, multi-chain support (not just Ethereum)
+- **Potential improvements**: historical price charts, portfolio tracking, alert notifications (email/telegram), more whale wallets, multi-chain support (not just Ethereum), Solana whale tracking (DEX trades via Helius/Birdeye APIs)
 
 ## Design Intent
 
