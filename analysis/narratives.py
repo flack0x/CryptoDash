@@ -145,40 +145,53 @@ def _compute_narrative_momentum(coin_ids: list[str], now: datetime, half_window:
     Negative = narrative fading.
     Near zero = stable.
     """
+    coin_set = set(coin_ids)
+
     # Get social signals for all coins in this narrative
     recent_signals = db.get_all_social_signals_since(now - half_window)
     older_signals = db.get_all_social_signals_since(now - full_window)
 
     recent_mentions = 0
+    recent_mention_count = 0
     older_mentions = 0
+    older_mention_count = 0
 
     for s in recent_signals:
-        if s.coin_id in coin_ids:
+        if s.coin_id in coin_set:
             recent_mentions += s.mentions
+            recent_mention_count += 1
 
     for s in older_signals:
-        if s.coin_id in coin_ids and s.timestamp < now - half_window:
+        if s.coin_id in coin_set and s.timestamp < now - half_window:
             older_mentions += s.mentions
+            older_mention_count += 1
 
-    # Also factor in volume changes
+    # Also factor in volume changes (use latest snapshot per coin, not sum of all)
     recent_snaps = db.get_all_snapshots_since(now - half_window)
     older_snaps = db.get_all_snapshots_since(now - full_window)
 
-    recent_vol = 0
-    older_vol = 0
-
+    # Deduplicate: keep latest snapshot per coin per period
+    recent_vol_map: dict[str, float] = {}
     for s in recent_snaps:
-        if s.coin_id in coin_ids:
-            recent_vol += s.volume_24h
+        if s.coin_id in coin_set:
+            recent_vol_map[s.coin_id] = s.volume_24h  # last one wins (latest)
 
+    older_vol_map: dict[str, float] = {}
     for s in older_snaps:
-        if s.coin_id in coin_ids and s.timestamp < now - half_window:
-            older_vol += s.volume_24h
+        if s.coin_id in coin_set and s.timestamp < now - half_window:
+            older_vol_map[s.coin_id] = s.volume_24h
 
-    # Compute momentum as a weighted score
+    recent_vol = sum(recent_vol_map.values())
+    older_vol = sum(older_vol_map.values())
+
+    # Normalize mentions by count to get average per signal (prevents inflation
+    # when recent period has more collection runs than older period)
     mention_momentum = 0
-    if older_mentions > 0:
-        mention_momentum = (recent_mentions - older_mentions) / older_mentions
+    if older_mention_count > 0 and recent_mention_count > 0:
+        avg_recent = recent_mentions / recent_mention_count
+        avg_older = older_mentions / older_mention_count
+        if avg_older > 0:
+            mention_momentum = (avg_recent - avg_older) / avg_older
 
     vol_momentum = 0
     if older_vol > 0:
