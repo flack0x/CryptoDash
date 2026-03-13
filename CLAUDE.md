@@ -159,7 +159,9 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **Etherscan V1 deprecated**: Whale tracker now uses V2 API at `api.etherscan.io/v2/api` with `chainid=1` parameter.
 - **Reddit set/list bug**: `_collect_subreddit()` was converting sets to lists after first subreddit, causing `.add()` to fail. Set-to-list conversion moved to `collect()` method.
 - **Whale dust transactions**: Threshold raised to $10K and requires USD valuation (`amount_usd is None` → skip). Unknown tokens without price data are excluded.
-- **Social false positives**: "just", "rain", "cash", "four" etc. matched as coin names. Fixed with 80+ word NOISE_WORDS set and requiring coins to exist in CoinGecko top 250 with proper names.
+- **Social false positives**: "just", "rain", "cash", "four" etc. matched as coin names. Fixed with 80+ word NOISE_WORDS set in `queries.ts`, 60+ word `_EXCLUDED_DB_SYMBOLS`/`_EXCLUDED_DB_NAMES` sets in `sentiment.py`, word-boundary matching for short names (<7 chars), and requiring coins to exist in CoinGecko top 250 with proper names.
+- **Whale direction inverted for funds**: Raw "in"/"out" direction was always interpreted as exchange logic. Fixed: direction is now semantic ("buy"/"sell") based on `entity_type` — exchanges: in=sell/out=buy; funds/VCs: in=buy/out=sell. **Never store raw "in"/"out" direction — always convert to semantic "buy"/"sell".**
+- **Dollar formatting overflow**: `$999,950` displayed as `$1000.0K`. Fixed threshold to `>= 999_950` → M format.
 
 ## Known Issues & Future Work
 
@@ -167,7 +169,7 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **Intelligence quality improves with data volume**: system needs to run continuously for days/weeks to build reliable baselines for social mention averages
 - **Reddit rate limits**: Reddit API has strict rate limits; the "redittest" app is registered for personal use
 - **GeckoTerminal trending**: returns DEX pool addresses as coin_ids — filtered in dashboard queries but stored raw in DB
-- **Sentiment false positives**: `analysis/sentiment.py` loads coin vocabulary from DB dynamically — obscure coins with short names (3-4 chars) can match common English words in text
+- **Sentiment false positives**: `analysis/sentiment.py` has extensive exclusion lists but new common-word coins can still slip through — check Social Buzz after adding new coin data sources
 - **Not yet built**: `output/api.py` (FastAPI endpoints), `output/dashboard.py` (Streamlit)
 - **Potential improvements**: historical price charts, portfolio tracking, alert notifications (email/telegram), more whale wallets, multi-chain support (not just Ethereum)
 
