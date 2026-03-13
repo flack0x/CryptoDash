@@ -1,8 +1,8 @@
 "use client";
 
-import type { IntelligenceAlert } from "@/lib/types";
+import type { EnrichedAlert } from "@/lib/types";
 import SeverityBadge from "./SeverityBadge";
-import { timeAgo } from "@/lib/format";
+import { timeAgo, formatPrice, formatPercent, formatUSD } from "@/lib/format";
 
 const typeLabels: Record<string, { label: string; icon: string; color: string; description: string }> = {
   stealth_accumulation: {
@@ -31,12 +31,13 @@ const typeLabels: Record<string, { label: string; icon: string; color: string; d
   },
 };
 
-function formatCoinName(coinId: string | null): string {
-  if (!coinId) return "?";
-  return coinId.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+function formatCoinName(alert: EnrichedAlert): string {
+  if (alert.coin?.name && alert.coin.name !== alert.coin.id) return alert.coin.name;
+  if (!alert.coin_id) return "?";
+  return alert.coin_id.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
-function buildSignalDescription(alert: IntelligenceAlert): string {
+function buildSignalDescription(alert: EnrichedAlert): string {
   const mentions = alert.social_mentions;
   const avgMentions = alert.social_avg_mentions;
   const whaleUsd = alert.whale_volume_usd;
@@ -68,7 +69,7 @@ function buildSignalDescription(alert: IntelligenceAlert): string {
   return brief.length > 100 ? brief.substring(0, 100) + "..." : brief;
 }
 
-export default function IntelligenceAlerts({ alerts }: { alerts: IntelligenceAlert[] }) {
+export default function IntelligenceAlerts({ alerts }: { alerts: EnrichedAlert[] }) {
   // Check if all alerts are the same type (indicates limited data)
   const uniqueTypes = new Set(alerts.map((a) => a.alert_type));
   const isMonotone = alerts.length > 0 && uniqueTypes.size === 1;
@@ -99,9 +100,12 @@ export default function IntelligenceAlerts({ alerts }: { alerts: IntelligenceAle
                   <SeverityBadge severity={a.severity} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold text-gray-100">
-                      {formatCoinName(a.coin_id)}
+                      {formatCoinName(a)}
+                      {a.coin?.symbol && a.coin.symbol !== a.coin.id && (
+                        <span className="ml-1.5 text-gray-500 text-xs font-normal">{a.coin.symbol.toUpperCase()}</span>
+                      )}
                     </span>
                     <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${typeInfo.color} bg-gray-800`}>
                       {typeInfo.label}
@@ -112,6 +116,19 @@ export default function IntelligenceAlerts({ alerts }: { alerts: IntelligenceAle
                       </span>
                     )}
                   </div>
+                  {a.price_usd != null && (
+                    <div className="flex items-center gap-3 mt-0.5 text-xs">
+                      <span className="text-gray-300 tabular-nums">{formatPrice(a.price_usd)}</span>
+                      {a.price_change_24h != null && (
+                        <span className={`tabular-nums ${a.price_change_24h >= 0 ? "text-green-400" : "text-red-400"}`}>
+                          {formatPercent(a.price_change_24h)}
+                        </span>
+                      )}
+                      {a.market_cap != null && a.market_cap > 0 && (
+                        <span className="text-gray-500">{formatUSD(a.market_cap)} mcap</span>
+                      )}
+                    </div>
+                  )}
                   <p className="text-sm text-gray-400 mt-0.5">
                     {buildSignalDescription(a)}
                   </p>

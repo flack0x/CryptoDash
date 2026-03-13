@@ -2,6 +2,7 @@ import { supabase } from "./supabase";
 import type {
   MarketMood, IntelligenceAlert, TrendingCoin, Snapshot,
   Narrative, Coin, SocialBuzz, WhaleTransaction, DashboardData,
+  EnrichedAlert,
 } from "./types";
 
 async function getLatestMood(): Promise<MarketMood | null> {
@@ -13,7 +14,7 @@ async function getLatestMood(): Promise<MarketMood | null> {
   return data?.[0] ?? null;
 }
 
-async function getAlerts(): Promise<IntelligenceAlert[]> {
+async function getAlerts(): Promise<EnrichedAlert[]> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   let { data } = await supabase
     .from("intelligence_alerts")
@@ -47,13 +48,44 @@ async function getAlerts(): Promise<IntelligenceAlert[]> {
     .from("coins")
     .select("id, symbol, name")
     .in("id", coinIds);
+  const coinMap = new Map((coins ?? []).map((c) => [c.id, c]));
   const validCoins = new Set(
     (coins ?? []).filter((c) => c.name !== c.id && c.symbol !== c.id).map((c) => c.id)
   );
 
-  return candidates
+  const filtered = candidates
     .filter((a) => validCoins.has(a.coin_id!))
     .slice(0, 6);
+
+  // Enrich with latest price data
+  const alertCoinIds = [...new Set(filtered.map((a) => a.coin_id!))];
+  const { data: latestSnap } = await supabase
+    .from("snapshots")
+    .select("ts")
+    .order("ts", { ascending: false })
+    .limit(1);
+  const batchStart = latestSnap?.[0]
+    ? new Date(new Date(latestSnap[0].ts).getTime() - 10 * 60 * 1000).toISOString()
+    : new Date(0).toISOString();
+  const { data: snapshots } = await supabase
+    .from("snapshots")
+    .select("coin_id, price_usd, price_change_24h, market_cap")
+    .in("coin_id", alertCoinIds)
+    .gte("ts", batchStart);
+  const snapMap = new Map(
+    (snapshots ?? []).map((s) => [s.coin_id, s])
+  );
+
+  return filtered.map((a) => {
+    const snap = snapMap.get(a.coin_id!);
+    return {
+      ...a,
+      coin: coinMap.get(a.coin_id!),
+      price_usd: snap?.price_usd,
+      price_change_24h: snap?.price_change_24h ?? undefined,
+      market_cap: snap?.market_cap,
+    };
+  });
 }
 
 async function getTrending(): Promise<(TrendingCoin & { coin?: Coin })[]> {

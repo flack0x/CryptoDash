@@ -29,32 +29,42 @@ Next.js Dashboard (deployed on Vercel)
 - **GitHub**: https://github.com/flack0x/CryptoDash (public, user: flack0x)
 - **Vercel**: https://dashboard-six-rouge-13.vercel.app (user: snmehanna-9643)
 - **Supabase**: project ref `baptgroflunptsjqfsfx`, region ap-south-1
-- **Vercel project**: linked in `dashboard/` subdirectory
+- **Vercel project**: linked in `dashboard/` subdirectory, auto-deploys from GitHub (`vercel git connect`)
 
 ## Running the System
 
 ```bash
-# Start all collectors (runs continuously with APScheduler)
-python main.py
+# Start all collectors + analysis (runs continuously with APScheduler)
+python main.py --daemon
 
-# Run collectors once
+# Or use Windows batch scripts:
+start_collector.bat          # Start daemon in background (writes .collector.pid)
+stop_collector.bat           # Stop background daemon
+
+# Run collectors once (no analysis)
 python main.py --collect
 
-# CLI dashboard output
-python main.py --dashboard
+# Run analysis only (on existing data)
+python main.py --analyze
 
-# Run a specific collector
-python main.py --collect --collector coingecko
+# Default: collect + analyze once
+python main.py
 
 # Dev server for Next.js dashboard
 cd dashboard && npm run dev
 
-# Deploy dashboard to Vercel
+# Deploy dashboard to Vercel (auto-deploys on git push)
 cd dashboard && vercel --prod
 
-# Push to GitHub
+# Push to GitHub (triggers Vercel auto-deploy)
 git add -A && git commit -m "message" && git push
 ```
+
+### Daemon Mode Details
+- Runs initial collection + analysis at startup
+- Scheduler then runs collectors on their intervals + analysis every 30 min
+- Analysis (`smart_money_analysis` job) generates fresh intelligence alerts from accumulated data
+- Logs output to `collector.log` when using `start_collector.bat`
 
 ## Collectors (7 Active + 2 Conditional)
 
@@ -122,6 +132,14 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **Empty hype confidence capped at 0.70** — weakest signal type (no whale confirmation, just absence of buying)
 - **Severity thresholds**: critical >= 0.75, high >= 0.50, medium >= 0.25, low < 0.25
 - **Minimum confidence 0.15** to generate any alert
+- **Analysis re-runs every 30 min** in daemon mode (scheduled job in `scheduler.py`)
+- **Whale direction is semantic**: "buy"/"sell" not raw "in"/"out". Exchange wallets: in=sell/out=buy. Fund/VC wallets: in=buy/out=sell. See `whale_tracker.py`.
+
+### Dashboard Data Quality Filters
+- **Intelligence Alerts**: Enriched with price data (price, 24h change, market cap) via `EnrichedAlert` type. Only shows coins in CoinGecko top 250 with proper names.
+- **Social Buzz**: Requires $50M+ market cap. NOISE_WORDS (80+), NOISE_COIN_IDS blocklist, and coins table validation.
+- **Whale Activity**: 48h time window, sorted by value, stablecoins only shown if >= $500K.
+- **VADER Sentiment thresholds**: Bullish > 0.08, Bearish < -0.08 (lowered from 0.2 because aggregated 4chan/reddit scores cluster near zero).
 
 ## Dashboard Components
 
@@ -129,7 +147,7 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 |-----------|---------|
 | `DashboardShell.tsx` | Client wrapper, holds state, auto-refresh every 5 min |
 | `MarketMood.tsx` | Fear & Greed gauge (0-100) |
-| `IntelligenceAlerts.tsx` | Smart money signals — card layout, max 6, coin-validated |
+| `IntelligenceAlerts.tsx` | Smart money signals — card layout with price context, max 6, coin-validated |
 | `TopMovers.tsx` | Gainers/Losers side-by-side cards |
 | `SocialBuzz.tsx` | Social mention counts + sentiment (top 250 coins only) |
 | `WhaleActivity.tsx` | Whale transaction feed (real on-chain data) |
@@ -159,9 +177,12 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **Etherscan V1 deprecated**: Whale tracker now uses V2 API at `api.etherscan.io/v2/api` with `chainid=1` parameter.
 - **Reddit set/list bug**: `_collect_subreddit()` was converting sets to lists after first subreddit, causing `.add()` to fail. Set-to-list conversion moved to `collect()` method.
 - **Whale dust transactions**: Threshold raised to $10K and requires USD valuation (`amount_usd is None` → skip). Unknown tokens without price data are excluded.
-- **Social false positives**: "just", "rain", "cash", "four" etc. matched as coin names. Fixed with 80+ word NOISE_WORDS set in `queries.ts`, 60+ word `_EXCLUDED_DB_SYMBOLS`/`_EXCLUDED_DB_NAMES` sets in `sentiment.py`, word-boundary matching for short names (<7 chars), and requiring coins to exist in CoinGecko top 250 with proper names.
+- **Social false positives**: "just", "rain", "cash", "four" etc. matched as coin names. Fixed with 80+ word NOISE_WORDS set in `queries.ts`, 60+ word `_EXCLUDED_DB_SYMBOLS`/`_EXCLUDED_DB_NAMES` sets in `sentiment.py`, word-boundary matching for short names (<7 chars), NOISE_COIN_IDS blocklist (e.g. "thetrumptoken", "aster-2"), $50M market cap minimum for Social Buzz, and requiring coins to exist in CoinGecko top 250 with proper names.
 - **Whale direction inverted for funds**: Raw "in"/"out" direction was always interpreted as exchange logic. Fixed: direction is now semantic ("buy"/"sell") based on `entity_type` — exchanges: in=sell/out=buy; funds/VCs: in=buy/out=sell. **Never store raw "in"/"out" direction — always convert to semantic "buy"/"sell".**
 - **Dollar formatting overflow**: `$999,950` displayed as `$1000.0K`. Fixed threshold to `>= 999_950` → M format.
+- **Old whale transactions surfaced**: Sorting by value showed 729-day-old transactions. Fixed with 48h time filter + stablecoin filtering (non-stables first, stables only if >= $500K).
+- **All sentiment "Neutral"**: VADER aggregated scores cluster near 0 for 4chan/reddit. Lowered thresholds from 0.2 to 0.08.
+- **Analysis went stale in daemon mode**: `scheduler.py` only scheduled collectors, not analysis. Fixed: added `smart_money_analysis` job running every 30 min.
 
 ## Known Issues & Future Work
 
@@ -173,6 +194,10 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **Not yet built**: `output/api.py` (FastAPI endpoints), `output/dashboard.py` (Streamlit)
 - **Potential improvements**: historical price charts, portfolio tracking, alert notifications (email/telegram), more whale wallets, multi-chain support (not just Ethereum)
 
+## Design Intent
+
+This is a **personal trading tool** — the goal is to generate actionable signals you can bet real money on. Every data quality improvement and filter exists to eliminate noise so the remaining signals are trustworthy. Intelligence alerts show price context (current price, 24h change, market cap) so you can evaluate whether to act immediately.
+
 ## File Structure
 
 ```
@@ -182,10 +207,12 @@ CryptoDash/
 ├── models.py                # Pydantic data models
 ├── db.py                    # Supabase client + DB operations (incl. ensure_coins_exist)
 ├── utils.py                 # Utilities (utcnow, etc.)
-├── scheduler.py             # APScheduler job registration
+├── scheduler.py             # APScheduler job registration (collectors + analysis every 30min)
 ├── requirements.txt         # Python dependencies
 ├── .env                     # API keys (not committed)
 ├── .gitignore
+├── start_collector.bat      # Start daemon in background (Windows)
+├── stop_collector.bat       # Stop background daemon (Windows)
 ├── CLAUDE.md                # This file
 │
 ├── collectors/              # Data collection
@@ -235,7 +262,7 @@ CryptoDash/
         ├── components/       # 10 React components (see table above)
         └── lib/
             ├── supabase.ts   # Supabase client (anon key)
-            ├── types.ts      # TypeScript interfaces
+            ├── types.ts      # TypeScript interfaces (incl. EnrichedAlert with price context)
             ├── queries.ts    # All data fetching + noise filtering + coin validation
             └── format.ts     # USD/number/time formatting
 ```

@@ -87,9 +87,16 @@ export interface SocialBuzz {
   sources: string[];
 }
 
+export type EnrichedAlert = IntelligenceAlert & {
+  coin?: Coin;
+  price_usd?: number;
+  price_change_24h?: number;
+  market_cap?: number;
+};
+
 export interface DashboardData {
   mood: MarketMood | null;
-  alerts: IntelligenceAlert[];
+  alerts: EnrichedAlert[];
   trending: (TrendingCoin & { coin?: Coin })[];
   gainers: (Snapshot & { coin?: Coin })[];
   losers: (Snapshot & { coin?: Coin })[];

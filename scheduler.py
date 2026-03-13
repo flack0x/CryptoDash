@@ -24,6 +24,18 @@ def run_collector(collector):
         logger.error(f"[{collector.name}] Collection failed: {e}", exc_info=True)
 
 
+def run_analysis():
+    """Run smart money analysis and persist new alerts."""
+    try:
+        from analysis.summary import generate_summary
+        from output.cli import print_summary
+        summary = generate_summary()
+        print_summary(summary)
+        logger.info(f"Analysis complete: {len(summary.intelligence_alerts)} alerts generated")
+    except Exception as e:
+        logger.error(f"Analysis failed: {e}", exc_info=True)
+
+
 def create_scheduler() -> BlockingScheduler:
     """Create and configure the scheduler with all collectors."""
     scheduler = BlockingScheduler()
@@ -130,6 +142,15 @@ def create_scheduler() -> BlockingScheduler:
             name="Whale Alert Large Transactions",
             next_run_time=None,
         )
+
+    # Smart money analysis — re-runs every 30 min to generate fresh alerts
+    scheduler.add_job(
+        run_analysis,
+        IntervalTrigger(seconds=config.SCHEDULES["smart_money_analysis"]),
+        id="smart_money_analysis",
+        name="Smart Money Analysis",
+        next_run_time=None,  # main.py runs it once at startup
+    )
 
     return scheduler
 

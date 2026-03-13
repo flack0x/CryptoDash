@@ -41,6 +41,7 @@ SCHEDULES = {
     "fourchan": 900,                # 15 min
     "whale_tracker": 1800,          # 30 min
     "whale_alert": 600,             # 10 min
+    "smart_money_analysis": 1800,   # 30 min
 }
 
 # Reddit config
