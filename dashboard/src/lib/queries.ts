@@ -33,16 +33,27 @@ async function getAlerts(): Promise<IntelligenceAlert[]> {
 
   // Filter out noise coins and deduplicate by coin_id (keep highest confidence)
   const seen = new Set<string>();
-  const filtered: typeof data = [];
+  const candidates: typeof data = [];
   for (const a of data) {
     if (!a.coin_id || !isValidCoinId(a.coin_id)) continue;
     if (seen.has(a.coin_id)) continue;
     seen.add(a.coin_id);
-    filtered.push(a);
+    candidates.push(a);
   }
 
-  // Return top 8 by confidence
-  return filtered.slice(0, 8);
+  // Only show alerts for coins that exist in our coins table with proper names
+  const coinIds = candidates.map((a) => a.coin_id!);
+  const { data: coins } = await supabase
+    .from("coins")
+    .select("id, symbol, name")
+    .in("id", coinIds);
+  const validCoins = new Set(
+    (coins ?? []).filter((c) => c.name !== c.id && c.symbol !== c.id).map((c) => c.id)
+  );
+
+  return candidates
+    .filter((a) => validCoins.has(a.coin_id!))
+    .slice(0, 6);
 }
 
 async function getTrending(): Promise<(TrendingCoin & { coin?: Coin })[]> {
@@ -215,11 +226,20 @@ async function getSocialBuzz(): Promise<SocialBuzz[]> {
     .in("id", coinIds);
   const coinMap = new Map((coins ?? []).map((c) => [c.id, c]));
 
-  // Only show coins that have a real name (not placeholder where name == id)
+  // Only show coins that have proper names AND are in the top 250 (have a snapshot)
+  const { data: snapCoins } = await supabase
+    .from("snapshots")
+    .select("coin_id")
+    .order("ts", { ascending: false })
+    .limit(500);
+  const snapshotCoinIds = new Set((snapCoins ?? []).map((s) => s.coin_id));
+
   return sorted
     .filter(([coin_id]) => {
       const coin = coinMap.get(coin_id);
-      return coin && coin.name !== coin.id && coin.symbol !== coin.id;
+      if (!coin || coin.name === coin.id || coin.symbol === coin.id) return false;
+      // Must have price data (i.e., in CoinGecko top 250)
+      return snapshotCoinIds.has(coin_id);
     })
     .slice(0, 10)
     .map(([coin_id, agg]) => ({

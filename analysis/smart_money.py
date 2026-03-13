@@ -18,6 +18,20 @@ from utils import utcnow
 
 logger = logging.getLogger(__name__)
 
+# Coins to NEVER generate alerts for (stablecoins, wrapped assets)
+EXCLUDED_COINS = {
+    "tether", "usd-coin", "dai", "true-usd", "paxos-standard",
+    "frax", "usdd", "first-digital-usd", "paypal-usd",
+    "staked-ether", "wrapped-bitcoin", "rocket-pool-eth",
+    "coinbase-wrapped-staked-eth", "wrapped-steth",
+}
+
+# Major coins need higher thresholds (they always have high social mentions)
+MAJOR_COINS = {
+    "bitcoin", "ethereum", "binancecoin", "solana", "ripple",
+    "cardano", "dogecoin", "toncoin", "tron", "avalanche-2",
+}
+
 
 def detect_smart_money_signals(window_hours: int = None) -> list[IntelligenceAlert]:
     """Cross-reference whale activity against social sentiment to find the gap."""
@@ -38,11 +52,14 @@ def detect_smart_money_signals(window_hours: int = None) -> list[IntelligenceAle
     for coin_id in all_coins:
         if coin_id.startswith("_") or coin_id.startswith("dex:"):
             continue
+        if coin_id in EXCLUDED_COINS:
+            continue
 
         s = social.get(coin_id, {"mentions": 0, "sentiment": 0, "avg_mentions": 0})
         w = whale.get(coin_id, {"net_usd": 0, "buy_usd": 0, "sell_usd": 0, "entities": []})
 
-        coin_alerts = _detect_patterns(coin_id, s, w, now)
+        is_major = coin_id in MAJOR_COINS
+        coin_alerts = _detect_patterns(coin_id, s, w, now, is_major=is_major)
         alerts.extend(coin_alerts)
 
     alerts.sort(key=lambda a: a.confidence, reverse=True)
@@ -115,7 +132,7 @@ def _aggregate_whale_activity(now, window) -> dict:
     return dict(result)
 
 
-def _detect_patterns(coin_id, social, whale, now) -> list[IntelligenceAlert]:
+def _detect_patterns(coin_id, social, whale, now, is_major=False) -> list[IntelligenceAlert]:
     alerts = []
 
     mentions = social["mentions"]
@@ -129,92 +146,101 @@ def _detect_patterns(coin_id, social, whale, now) -> list[IntelligenceAlert]:
 
     mention_ratio = mentions / avg_mentions if avg_mentions > 0 else 0
 
+    # Major coins need much higher thresholds — BTC/ETH always have high social mentions
+    hype_ratio = config.HYPE_MENTION_RATIO * (5 if is_major else 1)
+    min_mentions = 100 if is_major else 20
+
     # === STEALTH ACCUMULATION ===
     # Whale buying significant, social mentions below average
     if net_whale > min_usd and mention_ratio < config.STEALTH_MENTION_RATIO:
-        confidence = min(1.0, net_whale / 5_000_000) * (1 - mention_ratio)
-        alerts.append(IntelligenceAlert(
-            timestamp=now,
-            alert_type="stealth_accumulation",
-            coin_id=coin_id,
-            severity=_severity(confidence),
-            headline=f"Stealth accumulation detected in {coin_id}",
-            social_mentions=mentions,
-            social_sentiment=sentiment,
-            social_avg_mentions=avg_mentions,
-            whale_volume_usd=net_whale,
-            whale_direction="accumulating",
-            whale_entities=entities,
-            confidence=round(confidence, 3),
-        ))
+        confidence = min(0.95, (net_whale / 10_000_000) * (1 - mention_ratio))
+        if confidence >= 0.15:
+            alerts.append(IntelligenceAlert(
+                timestamp=now,
+                alert_type="stealth_accumulation",
+                coin_id=coin_id,
+                severity=_severity(confidence),
+                headline=f"Stealth accumulation detected in {coin_id}",
+                social_mentions=mentions,
+                social_sentiment=sentiment,
+                social_avg_mentions=avg_mentions,
+                whale_volume_usd=net_whale,
+                whale_direction="accumulating",
+                whale_entities=entities,
+                confidence=round(confidence, 3),
+            ))
 
     # === EMPTY HYPE ===
     # Social mentions way above average, whales not buying
-    if mention_ratio > config.HYPE_MENTION_RATIO and mentions > 20 and net_whale < 100_000:
-        confidence = min(1.0, mention_ratio / 5.0)
+    # This is the weakest signal — no whale data to confirm, just absence of buying
+    if mention_ratio > hype_ratio and mentions > min_mentions and net_whale < 100_000:
+        confidence = min(0.70, mention_ratio / (10.0 if is_major else 6.0))
         if sell_usd > buy_usd:
-            confidence = min(1.0, confidence + 0.2)
-        alerts.append(IntelligenceAlert(
-            timestamp=now,
-            alert_type="empty_hype",
-            coin_id=coin_id,
-            severity=_severity(confidence),
-            headline=f"Empty hype detected in {coin_id}",
-            social_mentions=mentions,
-            social_sentiment=sentiment,
-            social_avg_mentions=avg_mentions,
-            whale_volume_usd=net_whale,
-            whale_direction="neutral" if net_whale >= 0 else "dumping",
-            whale_entities=entities,
-            confidence=round(confidence, 3),
-        ))
+            confidence = min(0.80, confidence + 0.15)
+        if confidence >= 0.15:
+            alerts.append(IntelligenceAlert(
+                timestamp=now,
+                alert_type="empty_hype",
+                coin_id=coin_id,
+                severity=_severity(confidence),
+                headline=f"Empty hype detected in {coin_id}",
+                social_mentions=mentions,
+                social_sentiment=sentiment,
+                social_avg_mentions=avg_mentions,
+                whale_volume_usd=net_whale,
+                whale_direction="neutral" if net_whale >= 0 else "dumping",
+                whale_entities=entities,
+                confidence=round(confidence, 3),
+            ))
 
     # === SMART MONEY BUYING FEAR ===
     # Negative sentiment but whales accumulating
     if sentiment < -0.2 and net_whale > min_usd:
-        confidence = min(1.0, abs(sentiment) * (net_whale / 2_000_000))
-        alerts.append(IntelligenceAlert(
-            timestamp=now,
-            alert_type="smart_money_buying_fear",
-            coin_id=coin_id,
-            severity=_severity(confidence),
-            headline=f"Smart money buying fear in {coin_id}",
-            social_mentions=mentions,
-            social_sentiment=sentiment,
-            social_avg_mentions=avg_mentions,
-            whale_volume_usd=net_whale,
-            whale_direction="accumulating",
-            whale_entities=entities,
-            confidence=round(confidence, 3),
-        ))
+        confidence = min(0.95, abs(sentiment) * (net_whale / 5_000_000))
+        if confidence >= 0.15:
+            alerts.append(IntelligenceAlert(
+                timestamp=now,
+                alert_type="smart_money_buying_fear",
+                coin_id=coin_id,
+                severity=_severity(confidence),
+                headline=f"Smart money buying fear in {coin_id}",
+                social_mentions=mentions,
+                social_sentiment=sentiment,
+                social_avg_mentions=avg_mentions,
+                whale_volume_usd=net_whale,
+                whale_direction="accumulating",
+                whale_entities=entities,
+                confidence=round(confidence, 3),
+            ))
 
     # === SMART MONEY EXIT HYPE ===
     # Positive sentiment but whales dumping
     if sentiment > 0.3 and net_whale < -min_usd:
-        confidence = min(1.0, sentiment * (abs(net_whale) / 2_000_000))
-        alerts.append(IntelligenceAlert(
-            timestamp=now,
-            alert_type="smart_money_exit_hype",
-            coin_id=coin_id,
-            severity=_severity(confidence),
-            headline=f"Smart money exiting {coin_id} despite positive sentiment",
-            social_mentions=mentions,
-            social_sentiment=sentiment,
-            social_avg_mentions=avg_mentions,
-            whale_volume_usd=abs(net_whale),
-            whale_direction="dumping",
-            whale_entities=entities,
-            confidence=round(confidence, 3),
-        ))
+        confidence = min(0.95, sentiment * (abs(net_whale) / 5_000_000))
+        if confidence >= 0.15:
+            alerts.append(IntelligenceAlert(
+                timestamp=now,
+                alert_type="smart_money_exit_hype",
+                coin_id=coin_id,
+                severity=_severity(confidence),
+                headline=f"Smart money exiting {coin_id} despite positive sentiment",
+                social_mentions=mentions,
+                social_sentiment=sentiment,
+                social_avg_mentions=avg_mentions,
+                whale_volume_usd=abs(net_whale),
+                whale_direction="dumping",
+                whale_entities=entities,
+                confidence=round(confidence, 3),
+            ))
 
     return alerts
 
 
 def _severity(confidence: float) -> str:
-    if confidence >= 0.8:
+    if confidence >= 0.75:
         return "critical"
-    elif confidence >= 0.5:
+    elif confidence >= 0.50:
         return "high"
-    elif confidence >= 0.3:
+    elif confidence >= 0.25:
         return "medium"
     return "low"

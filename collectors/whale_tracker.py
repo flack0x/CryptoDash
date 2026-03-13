@@ -91,8 +91,8 @@ class WhaleTrackerCollector(BaseCollector):
             coin_id = TOKEN_SYMBOL_MAP.get(token_symbol.upper())
             amount_usd = self._estimate_usd(coin_id, amount)
 
-            # Skip dust transactions
-            if amount_usd is not None and amount_usd < 1000:
+            # Only track transactions we can value and that are whale-sized
+            if amount_usd is None or amount_usd < 10_000:
                 continue
 
             transactions.append(WhaleTransaction(
