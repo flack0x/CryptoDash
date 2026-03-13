@@ -60,11 +60,17 @@ cd dashboard && vercel --prod
 git add -A && git commit -m "message" && git push
 ```
 
-### Daemon Mode Details
-- Runs initial collection + analysis at startup
-- Scheduler then runs collectors on their intervals + analysis every 30 min
-- Analysis (`smart_money_analysis` job) generates fresh intelligence alerts from accumulated data
-- Logs output to `collector.log` when using `start_collector.bat`
+### GitHub Actions (Primary — runs 24/7 for free)
+- `.github/workflows/collect.yml` runs every 15 min on cron
+- Public repo = unlimited free GitHub Actions minutes
+- All secrets stored as GitHub repository secrets (SUPABASE_URL, SUPABASE_SERVICE_KEY, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, ETHERSCAN_API_KEY)
+- Manual trigger: `gh workflow run collect.yml` or from GitHub UI
+- Each run: installs deps (cached), runs all collectors + analysis (~3 min)
+
+### Local Daemon Mode (backup — only if needed)
+- `python main.py --daemon` or `start_collector.bat` / `stop_collector.bat`
+- Scheduler runs collectors on intervals + analysis every 30 min
+- Only needed if GitHub Actions is insufficient
 
 ## Collectors (7 Active + 2 Conditional)
 
