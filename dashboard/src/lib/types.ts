@@ -56,6 +56,37 @@ export interface Coin {
   name: string;
 }
 
+export interface SocialSignal {
+  id: number;
+  coin_id: string;
+  ts: string;
+  source: string;
+  mentions: number;
+  sentiment_score: number | null;
+  engagement: number | null;
+}
+
+export interface WhaleTransaction {
+  id: number;
+  wallet_address: string;
+  coin_id: string | null;
+  token_symbol: string;
+  amount: number;
+  amount_usd: number | null;
+  direction: string;
+  label: string;
+  entity_type: string;
+  ts: string;
+}
+
+export interface SocialBuzz {
+  coin_id: string;
+  coin?: Coin;
+  totalMentions: number;
+  avgSentiment: number;
+  sources: string[];
+}
+
 export interface DashboardData {
   mood: MarketMood | null;
   alerts: IntelligenceAlert[];
@@ -63,5 +94,7 @@ export interface DashboardData {
   gainers: (Snapshot & { coin?: Coin })[];
   losers: (Snapshot & { coin?: Coin })[];
   narratives: Narrative[];
+  socialBuzz: SocialBuzz[];
+  whaleActivity: WhaleTransaction[];
   lastUpdated: string;
 }

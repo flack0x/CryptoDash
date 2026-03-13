@@ -8,9 +8,11 @@ import IntelligenceAlerts from "./IntelligenceAlerts";
 import TopMovers from "./TopMovers";
 import TrendingCoins from "./TrendingCoins";
 import NarrativeMomentum from "./NarrativeMomentum";
+import SocialBuzz from "./SocialBuzz";
+import WhaleActivity from "./WhaleActivity";
 import RefreshIndicator from "./RefreshIndicator";
 
-const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const REFRESH_INTERVAL = 5 * 60 * 1000;
 
 export default function DashboardShell({ initial }: { initial: DashboardData }) {
   const [data, setData] = useState<DashboardData>(initial);
@@ -34,12 +36,16 @@ export default function DashboardShell({ initial }: { initial: DashboardData }) 
   }, [refresh]);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 px-4 py-6">
+    <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
       {/* Header */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">CryptoDash Intelligence</h1>
-          <p className="text-sm text-gray-500">Where is smart money going that the crowd hasn&apos;t noticed yet?</p>
+          <h1 className="text-2xl font-bold text-white tracking-tight">
+            CryptoDash Intelligence
+          </h1>
+          <p className="text-sm text-gray-500">
+            Where is smart money going that the crowd hasn&apos;t noticed yet?
+          </p>
         </div>
         <div className="flex items-center gap-3">
           {loading && (
@@ -49,7 +55,7 @@ export default function DashboardShell({ initial }: { initial: DashboardData }) 
           <button
             onClick={refresh}
             disabled={loading}
-            className="rounded bg-gray-800 px-3 py-1 text-sm text-gray-300 hover:bg-gray-700 disabled:opacity-50"
+            className="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-medium text-gray-300 transition-colors hover:bg-gray-700 hover:text-white disabled:opacity-50"
           >
             Refresh
           </button>
@@ -59,17 +65,28 @@ export default function DashboardShell({ initial }: { initial: DashboardData }) 
       {/* Market Mood */}
       <MarketMood mood={data.mood} />
 
-      {/* Intelligence Alerts — THE main section */}
+      {/* Intelligence Alerts — THE primary section */}
       <IntelligenceAlerts alerts={data.alerts} />
 
       {/* Top Movers */}
       <TopMovers gainers={data.gainers} losers={data.losers} />
+
+      {/* Social Buzz + Whale Activity side by side */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <SocialBuzz buzz={data.socialBuzz} />
+        <WhaleActivity transactions={data.whaleActivity} />
+      </div>
 
       {/* Trending */}
       <TrendingCoins trending={data.trending} />
 
       {/* Narratives */}
       <NarrativeMomentum narratives={data.narratives} />
+
+      {/* Footer */}
+      <div className="border-t border-gray-800 pt-4 text-center text-xs text-gray-600">
+        CryptoDash — Crypto intelligence powered by on-chain + social data
+      </div>
     </div>
   );
 }
