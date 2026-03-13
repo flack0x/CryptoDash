@@ -55,6 +55,11 @@ class RedditCollector(BaseCollector):
                 }),
             ))
 
+        # Convert sets to lists for JSON serialization
+        for data in all_signals.values():
+            if isinstance(data["subreddits"], set):
+                data["subreddits"] = list(data["subreddits"])
+
         if signals:
             # Ensure coins exist before inserting signals
             from models import Coin
@@ -110,7 +115,4 @@ class RedditCollector(BaseCollector):
                 all_signals[coin_id]["subreddits"].add(sub_name)
                 all_signals[coin_id]["titles"].append(post.title[:100])
 
-        # Convert sets to lists for JSON serialization
-        for data in all_signals.values():
-            if isinstance(data["subreddits"], set):
-                data["subreddits"] = list(data["subreddits"])
+        # No-op: sets converted to lists in collect() before JSON serialization
