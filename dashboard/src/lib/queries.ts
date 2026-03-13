@@ -168,11 +168,19 @@ const NOISE_WORDS = new Set([
   "_market",
 ]);
 
+// Specific coin IDs that are real coins but whose names/symbols cause false matches
+const NOISE_COIN_IDS = new Set([
+  "cash-4", "reallink", "stable-2", "base-protocol",
+  "thetrumptoken", "aster-2", "story-2", "midnight-3",
+  "four", "just", "rain",
+]);
+
 /** Returns true if the coin_id looks like a real coin (not noise) */
 function isValidCoinId(coinId: string): boolean {
   if (coinId.startsWith("dex:")) return false;
   if (coinId.startsWith("_")) return false;
   if (NOISE_WORDS.has(coinId.toLowerCase())) return false;
+  if (NOISE_COIN_IDS.has(coinId.toLowerCase())) return false;
   // Reject IDs that are just numbers or very short
   if (coinId.length <= 2) return false;
   if (/^\d+$/.test(coinId)) return false;
@@ -226,20 +234,31 @@ async function getSocialBuzz(): Promise<SocialBuzz[]> {
     .in("id", coinIds);
   const coinMap = new Map((coins ?? []).map((c) => [c.id, c]));
 
-  // Only show coins that have proper names AND are in the top 250 (have a snapshot)
+  // Only show coins with proper names, price data, and meaningful market cap
+  // Get latest snapshot batch to verify coin is currently in top 250
+  const { data: latestSnap } = await supabase
+    .from("snapshots")
+    .select("ts")
+    .order("ts", { ascending: false })
+    .limit(1);
+  const batchStart = latestSnap?.[0]
+    ? new Date(new Date(latestSnap[0].ts).getTime() - 10 * 60 * 1000).toISOString()
+    : new Date(0).toISOString();
   const { data: snapCoins } = await supabase
     .from("snapshots")
-    .select("coin_id")
-    .order("ts", { ascending: false })
-    .limit(500);
-  const snapshotCoinIds = new Set((snapCoins ?? []).map((s) => s.coin_id));
+    .select("coin_id, market_cap")
+    .gte("ts", batchStart);
+  const validSnaps = new Map(
+    (snapCoins ?? []).map((s) => [s.coin_id, s.market_cap ?? 0])
+  );
 
   return sorted
     .filter(([coin_id]) => {
       const coin = coinMap.get(coin_id);
       if (!coin || coin.name === coin.id || coin.symbol === coin.id) return false;
-      // Must have price data (i.e., in CoinGecko top 250)
-      return snapshotCoinIds.has(coin_id);
+      const mktCap = validSnaps.get(coin_id) ?? 0;
+      // Must have price data AND at least $50M market cap (filters junk coins)
+      return mktCap >= 50_000_000;
     })
     .slice(0, 10)
     .map(([coin_id, agg]) => ({
@@ -255,27 +274,23 @@ async function getSocialBuzz(): Promise<SocialBuzz[]> {
 const STABLECOIN_SYMBOLS = new Set(["USDT", "USDC", "DAI", "TUSD", "BUSD", "USDP", "FRAX", "PYUSD"]);
 
 async function getWhaleActivity(): Promise<WhaleTransaction[]> {
-  // Fetch more than needed so we can filter stablecoins and show the most interesting
+  // Only show recent whale activity — old transactions destroy trust
+  const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
   const { data } = await supabase
     .from("whale_transactions")
     .select("id, wallet_address, coin_id, token_symbol, amount, amount_usd, direction, label, entity_type, ts")
-    .order("ts", { ascending: false })
+    .gte("ts", since)
+    .order("amount_usd", { ascending: false })
     .limit(100);
   if (!data || data.length === 0) return [];
 
-  // Split into non-stablecoin (priority) and stablecoin (filler)
+  // Non-stablecoin transactions first (the interesting ones), then large stablecoin moves
   const nonStable = data.filter((tx) => !STABLECOIN_SYMBOLS.has(tx.token_symbol?.toUpperCase()));
-  const stableOnly = data
+  const stableBig = data
     .filter((tx) => STABLECOIN_SYMBOLS.has(tx.token_symbol?.toUpperCase()))
-    .filter((tx) => (tx.amount_usd ?? 0) >= 100_000); // Only large stablecoin moves
+    .filter((tx) => (tx.amount_usd ?? 0) >= 500_000); // Only $500K+ stablecoin moves
 
-  // Show non-stablecoin first (sorted by value), then fill with large stablecoin moves
-  const sorted = [
-    ...nonStable.sort((a, b) => (b.amount_usd ?? 0) - (a.amount_usd ?? 0)),
-    ...stableOnly.sort((a, b) => (b.amount_usd ?? 0) - (a.amount_usd ?? 0)),
-  ];
-
-  return sorted.slice(0, 10);
+  return [...nonStable, ...stableBig].slice(0, 10);
 }
 
 export async function fetchDashboardData(): Promise<DashboardData> {

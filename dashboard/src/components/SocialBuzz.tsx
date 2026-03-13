@@ -3,16 +3,16 @@
 import type { SocialBuzz as SocialBuzzType } from "@/lib/types";
 
 function sentimentColor(score: number): string {
-  if (score > 0.2) return "text-green-400";
-  if (score < -0.2) return "text-red-400";
+  if (score > 0.08) return "text-green-400";
+  if (score < -0.08) return "text-red-400";
   return "text-gray-400";
 }
 
 function sentimentLabel(score: number): string {
-  if (score > 0.5) return "Very Bullish";
-  if (score > 0.2) return "Bullish";
-  if (score > -0.2) return "Neutral";
-  if (score > -0.5) return "Bearish";
+  if (score > 0.25) return "Very Bullish";
+  if (score > 0.08) return "Bullish";
+  if (score > -0.08) return "Neutral";
+  if (score > -0.25) return "Bearish";
   return "Very Bearish";
 }
 
