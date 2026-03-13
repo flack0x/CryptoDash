@@ -38,6 +38,11 @@ class RedditCollector(BaseCollector):
             except Exception as e:
                 logger.error(f"[{self.name}] Error scraping r/{sub_name}: {e}")
 
+        # Convert sets to lists for JSON serialization (must happen before json.dumps)
+        for data in all_signals.values():
+            if isinstance(data["subreddits"], set):
+                data["subreddits"] = list(data["subreddits"])
+
         # Convert aggregated signals to SocialSignal objects
         signals = []
         for coin_id, data in all_signals.items():
@@ -54,11 +59,6 @@ class RedditCollector(BaseCollector):
                     "sample_titles": data["titles"][:5],
                 }),
             ))
-
-        # Convert sets to lists for JSON serialization
-        for data in all_signals.values():
-            if isinstance(data["subreddits"], set):
-                data["subreddits"] = list(data["subreddits"])
 
         if signals:
             # Ensure coins exist (placeholder only — won't overwrite proper names from CoinGecko)
