@@ -29,7 +29,8 @@ Next.js Dashboard (deployed on Vercel)
 - **GitHub**: https://github.com/flack0x/CryptoDash (public, user: flack0x)
 - **Vercel**: https://dashboard-six-rouge-13.vercel.app (user: snmehanna-9643)
 - **Supabase**: project ref `baptgroflunptsjqfsfx`, region ap-south-1
-- **Vercel project**: linked in `dashboard/` subdirectory, auto-deploys from GitHub (`vercel git connect`)
+- **Vercel project**: root directory set to `dashboard/` in project settings, auto-deploys from GitHub
+- **GitHub Actions**: `.github/workflows/collect.yml` runs collectors + analysis every 15 min (free, public repo)
 
 ## Running the System
 
@@ -53,8 +54,8 @@ python main.py
 # Dev server for Next.js dashboard
 cd dashboard && npm run dev
 
-# Deploy dashboard to Vercel (auto-deploys on git push)
-cd dashboard && vercel --prod
+# Deploy dashboard to Vercel (auto-deploys on git push, or manual:)
+vercel --prod  # Run from repo ROOT, not dashboard/ (root dir is set in Vercel settings)
 
 # Push to GitHub (triggers Vercel auto-deploy)
 git add -A && git commit -m "message" && git push
@@ -189,6 +190,8 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **Old whale transactions surfaced**: Sorting by value showed 729-day-old transactions. Fixed with 48h time filter + stablecoin filtering (non-stables first, stables only if >= $500K).
 - **All sentiment "Neutral"**: VADER aggregated scores cluster near 0 for 4chan/reddit. Lowered thresholds from 0.2 to 0.08.
 - **Analysis went stale in daemon mode**: `scheduler.py` only scheduled collectors, not analysis. Fixed: added `smart_money_analysis` job running every 30 min.
+- **Vercel auto-deploy failing**: Root directory was `.` (repo root) instead of `dashboard`. Vercel couldn't find the `app` directory. Fixed via API: `rootDirectory: "dashboard"`. **Manual deploys from CLI must run from repo root, not `dashboard/`.**
+- **ETC false positive**: "etc." in text matched as Ethereum Classic. Fixed: added "ETC" to `_AMBIGUOUS_SYMBOLS` in `sentiment.py` (only matches `$ETC`).
 
 ## Known Issues & Future Work
 
