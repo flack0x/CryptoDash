@@ -31,7 +31,9 @@ function MoverTable({ title, movers, colorClass }: { title: string; movers: Move
           {movers.map((m) => (
             <tr key={m.id} className="border-b border-gray-800/50">
               <td className="py-1.5 pr-3 text-gray-200">
-                {m.coin ? `${m.coin.name} (${m.coin.symbol.toUpperCase()})` : m.coin_id}
+                {m.coin && m.coin.name !== m.coin.id
+                  ? `${m.coin.name} (${m.coin.symbol.toUpperCase()})`
+                  : m.coin_id.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}
               </td>
               <td className="py-1.5 pr-3 text-right text-gray-300">{formatPrice(m.price_usd)}</td>
               <td className={`py-1.5 pr-3 text-right font-medium ${(m.price_change_24h ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>

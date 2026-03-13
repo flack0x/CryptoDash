@@ -61,13 +61,8 @@ class RedditCollector(BaseCollector):
                 data["subreddits"] = list(data["subreddits"])
 
         if signals:
-            # Ensure coins exist before inserting signals
-            from models import Coin
-            coins_to_upsert = [
-                Coin(id=s.coin_id, symbol=s.coin_id, name=s.coin_id, categories=[])
-                for s in signals
-            ]
-            db.upsert_coins(coins_to_upsert)
+            # Ensure coins exist (placeholder only — won't overwrite proper names from CoinGecko)
+            db.ensure_coins_exist([s.coin_id for s in signals])
             db.insert_social_signals(signals)
             logger.info(f"[{self.name}] Stored {len(signals)} coin signals from Reddit")
 

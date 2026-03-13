@@ -29,14 +29,18 @@ export default function SocialBuzz({ buzz }: { buzz: SocialBuzzType[] }) {
           {buzz.map((b) => {
             const maxMentions = buzz[0]?.totalMentions || 1;
             const barWidth = Math.max((b.totalMentions / maxMentions) * 100, 3);
+            const coinName = b.coin?.name ?? b.coin_id;
+            const coinSymbol = b.coin?.symbol && b.coin.symbol !== b.coin.id
+              ? b.coin.symbol.toUpperCase()
+              : null;
             return (
               <div key={b.coin_id}>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-200 font-medium">
-                    {b.coin?.name ?? b.coin_id}
-                    <span className="ml-1.5 text-gray-500 text-xs">
-                      {b.coin?.symbol?.toUpperCase()}
-                    </span>
+                    {coinName}
+                    {coinSymbol && (
+                      <span className="ml-1.5 text-gray-500 text-xs">{coinSymbol}</span>
+                    )}
                   </span>
                   <div className="flex items-center gap-3">
                     <span className={`text-xs ${sentimentColor(b.avgSentiment)}`}>

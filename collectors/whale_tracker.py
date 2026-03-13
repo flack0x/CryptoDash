@@ -36,7 +36,7 @@ TOKEN_SYMBOL_MAP = {
 
 class WhaleTrackerCollector(BaseCollector):
     name = "whale_tracker"
-    ETHERSCAN_API = "https://api.etherscan.io/api"
+    ETHERSCAN_API = "https://api.etherscan.io/v2/api"
 
     def __init__(self):
         super().__init__()
@@ -64,6 +64,7 @@ class WhaleTrackerCollector(BaseCollector):
         data = self.get(
             self.ETHERSCAN_API,
             params={
+                "chainid": 1,  # Ethereum mainnet
                 "module": "account",
                 "action": "tokentx",
                 "address": wallet.address,

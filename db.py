@@ -65,6 +65,19 @@ def upsert_coins(coins: list[Coin]):
     client.table("coins").upsert(rows).execute()
 
 
+def ensure_coins_exist(coin_ids: list[str]):
+    """Create placeholder coin entries if they don't already exist.
+
+    Uses ON CONFLICT DO NOTHING so existing coins with proper names
+    from CoinGecko are never overwritten.
+    """
+    if not coin_ids:
+        return
+    client = get_client()
+    rows = [{"id": cid, "symbol": cid, "name": cid, "categories": []} for cid in coin_ids]
+    client.table("coins").upsert(rows, ignore_duplicates=True).execute()
+
+
 def get_coin(coin_id: str) -> Optional[Coin]:
     client = get_client()
     result = client.table("coins").select("*").eq("id", coin_id).limit(1).execute()

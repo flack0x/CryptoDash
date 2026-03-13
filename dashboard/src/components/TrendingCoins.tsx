@@ -6,18 +6,18 @@ import { timeAgo } from "@/lib/format";
 type TrendingRow = TrendingCoin & { coin?: Coin };
 
 function cleanCoinName(row: TrendingRow): string {
-  if (row.coin?.name) return row.coin.name;
-  // Strip "dex:" prefix and network from raw geckoterminal IDs
+  // Use proper name from coins table if available and not a placeholder
+  if (row.coin?.name && row.coin.name !== row.coin.id) return row.coin.name;
+  // Format ID: "bitcoin" -> "Bitcoin", "ethereum-classic" -> "Ethereum Classic"
   const id = row.coin_id;
   if (id.startsWith("dex:")) {
-    // These are pool addresses — show symbol instead
     return row.coin?.symbol?.toUpperCase() || id.replace(/^dex:/, "").split("_")[0].toUpperCase();
   }
-  return id;
+  return id.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
 function cleanSymbol(row: TrendingRow): string {
-  if (row.coin?.symbol) return row.coin.symbol.toUpperCase();
+  if (row.coin?.symbol && row.coin.symbol !== row.coin.id) return row.coin.symbol.toUpperCase();
   return "";
 }
 

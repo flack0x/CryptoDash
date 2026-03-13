@@ -15,21 +15,34 @@ async function getLatestMood(): Promise<MarketMood | null> {
 
 async function getAlerts(): Promise<IntelligenceAlert[]> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { data } = await supabase
+  let { data } = await supabase
     .from("intelligence_alerts")
     .select("*")
     .gte("ts", since)
-    .order("ts", { ascending: false })
-    .limit(20);
+    .order("confidence", { ascending: false })
+    .limit(50);
 
-  if (data && data.length > 0) return data;
+  if (!data || data.length === 0) {
+    const { data: fallback } = await supabase
+      .from("intelligence_alerts")
+      .select("*")
+      .order("ts", { ascending: false })
+      .limit(50);
+    data = fallback ?? [];
+  }
 
-  const { data: fallback } = await supabase
-    .from("intelligence_alerts")
-    .select("*")
-    .order("ts", { ascending: false })
-    .limit(20);
-  return fallback ?? [];
+  // Filter out noise coins and deduplicate by coin_id (keep highest confidence)
+  const seen = new Set<string>();
+  const filtered: typeof data = [];
+  for (const a of data) {
+    if (!a.coin_id || !isValidCoinId(a.coin_id)) continue;
+    if (seen.has(a.coin_id)) continue;
+    seen.add(a.coin_id);
+    filtered.push(a);
+  }
+
+  // Return top 8 by confidence
+  return filtered.slice(0, 8);
 }
 
 async function getTrending(): Promise<(TrendingCoin & { coin?: Coin })[]> {
@@ -125,13 +138,35 @@ async function getNarratives(): Promise<Narrative[]> {
   return data ?? [];
 }
 
-// Common English words that get false-matched as coin names
+// Common English words and short strings that get false-matched as coin names
 const NOISE_WORDS = new Set([
+  // Common English
   "just", "cash", "next", "new", "now", "one", "any", "get", "can", "all",
   "day", "time", "way", "out", "back", "real", "link", "long", "not", "how",
   "big", "top", "pay", "run", "try", "win", "key", "free", "hot", "safe",
+  "rain", "four", "map", "gas", "ace", "bit", "net", "orb", "lab", "hex",
+  "arc", "ion", "amp", "core", "edge", "flux", "hive", "mask", "nest",
+  "open", "play", "rise", "swap", "true", "unit", "vibe", "wave", "zero",
+  "ever", "fire", "fuel", "gate", "high", "keep", "loom", "make", "move",
+  "push", "rare", "seed", "turn", "wrap", "coin", "like", "hope", "live",
+  "mine", "only", "over", "star", "stop", "that", "this", "some", "what",
+  // Crypto jargon
   "moon", "pump", "buy", "sell", "hold", "bear", "bull", "rug", "dip",
+  "hodl", "fomo", "ngmi", "wagmi", "gwei", "defi", "degen",
+  // Meta
+  "_market",
 ]);
+
+/** Returns true if the coin_id looks like a real coin (not noise) */
+function isValidCoinId(coinId: string): boolean {
+  if (coinId.startsWith("dex:")) return false;
+  if (coinId.startsWith("_")) return false;
+  if (NOISE_WORDS.has(coinId.toLowerCase())) return false;
+  // Reject IDs that are just numbers or very short
+  if (coinId.length <= 2) return false;
+  if (/^\d+$/.test(coinId)) return false;
+  return true;
+}
 
 async function getSocialBuzz(): Promise<SocialBuzz[]> {
   const since = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
@@ -144,12 +179,10 @@ async function getSocialBuzz(): Promise<SocialBuzz[]> {
 
   if (!data || data.length === 0) return [];
 
-  // Aggregate by coin_id, filtering out DEX addresses and noise words
+  // Aggregate by coin_id, filtering out DEX addresses and noise
   const map = new Map<string, { mentions: number; sentimentSum: number; sentimentCount: number; sources: Set<string> }>();
   for (const s of data) {
-    // Skip DEX pool addresses and common English words
-    if (s.coin_id.startsWith("dex:")) continue;
-    if (NOISE_WORDS.has(s.coin_id.toLowerCase())) continue;
+    if (!isValidCoinId(s.coin_id)) continue;
 
     const existing = map.get(s.coin_id);
     if (existing) {
@@ -171,7 +204,7 @@ async function getSocialBuzz(): Promise<SocialBuzz[]> {
 
   const sorted = [...map.entries()]
     .sort((a, b) => b[1].mentions - a[1].mentions)
-    .slice(0, 10);
+    .slice(0, 30); // Fetch more so we can filter after coin lookup
 
   const coinIds = sorted.map(([id]) => id);
   if (coinIds.length === 0) return [];
@@ -182,13 +215,20 @@ async function getSocialBuzz(): Promise<SocialBuzz[]> {
     .in("id", coinIds);
   const coinMap = new Map((coins ?? []).map((c) => [c.id, c]));
 
-  return sorted.map(([coin_id, agg]) => ({
-    coin_id,
-    coin: coinMap.get(coin_id),
-    totalMentions: agg.mentions,
-    avgSentiment: agg.sentimentCount > 0 ? agg.sentimentSum / agg.sentimentCount : 0,
-    sources: [...agg.sources],
-  }));
+  // Only show coins that have a real name (not placeholder where name == id)
+  return sorted
+    .filter(([coin_id]) => {
+      const coin = coinMap.get(coin_id);
+      return coin && coin.name !== coin.id && coin.symbol !== coin.id;
+    })
+    .slice(0, 10)
+    .map(([coin_id, agg]) => ({
+      coin_id,
+      coin: coinMap.get(coin_id),
+      totalMentions: agg.mentions,
+      avgSentiment: agg.sentimentCount > 0 ? agg.sentimentSum / agg.sentimentCount : 0,
+      sources: [...agg.sources],
+    }));
 }
 
 async function getWhaleActivity(): Promise<WhaleTransaction[]> {
