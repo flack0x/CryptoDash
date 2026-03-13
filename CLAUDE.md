@@ -10,7 +10,7 @@ Two inputs: what the crowd thinks (social sentiment) + what informed actors do (
 
 ```
 Python Backend (runs locally)
-  ├── collectors/     → 7 data collectors on schedules
+  ├── collectors/     → 9 data collectors on schedules
   ├── analysis/       → smart money intelligence engine
   └── output/         → CLI display, intelligence briefs
          ↕
@@ -26,8 +26,8 @@ Next.js Dashboard (deployed on Vercel)
 
 ## Deployments & URLs
 
-- **GitHub**: https://github.com/flack0x/CryptoDash (public)
-- **Vercel**: https://dashboard-six-rouge-13.vercel.app
+- **GitHub**: https://github.com/flack0x/CryptoDash (public, user: flack0x)
+- **Vercel**: https://dashboard-six-rouge-13.vercel.app (user: snmehanna-9643)
 - **Supabase**: project ref `baptgroflunptsjqfsfx`, region ap-south-1
 - **Vercel project**: linked in `dashboard/` subdirectory
 
@@ -67,8 +67,8 @@ git add -A && git commit -m "message" && git push
 | `geckoterminal.py` | GeckoTerminal | 10 min | No |
 | `fourchan.py` | 4chan /biz/ | 15 min | No |
 | `reddit.py` | Reddit PRAW | 10 min | REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET |
-| `whale_tracker.py` | Etherscan | conditional | ETHERSCAN_API_KEY |
-| `whale_alert.py` | Whale Alert | conditional | WHALE_ALERT_API_KEY |
+| `whale_tracker.py` | Etherscan V2 | 30 min | ETHERSCAN_API_KEY |
+| `whale_alert.py` | Whale Alert | conditional | WHALE_ALERT_API_KEY (not configured) |
 
 Conditional collectors are skipped by `scheduler.py` if their API keys are missing from `.env`.
 
@@ -76,7 +76,7 @@ Conditional collectors are skipped by `scheduler.py` if their API keys are missi
 
 ```
 SUPABASE_URL=https://baptgroflunptsjqfsfx.supabase.co
-SUPABASE_KEY=<service role key>
+SUPABASE_SERVICE_KEY=<service role key>
 REDDIT_CLIENT_ID=hmGsnwxDnE6BkUTLtKFiXw
 REDDIT_CLIENT_SECRET=fyGd0VsemZtPORcTyNlZTNAgwNHIAQ
 ETHERSCAN_API_KEY=BQ5FS9KZ7TSEYPTRBB8Y9C54FIR8CF8RW3
@@ -94,15 +94,15 @@ Same env vars are set in Vercel project settings for production builds.
 
 | Table | Purpose |
 |-------|---------|
-| `coins` | Master coin list (id, symbol, name) |
+| `coins` | Master coin list (id, symbol, name) — CoinGecko is source of truth |
 | `snapshots` | Price snapshots (price, market_cap, volume, price_change_24h) |
 | `trending` | Trending coins from multiple sources |
 | `market_mood` | Fear & Greed Index |
 | `social_signals` | Social mentions + sentiment per coin per source |
 | `on_chain` | DeFi protocol TVL data |
 | `narratives` | Narrative themes + momentum scores |
-| `tracked_wallets` | Whale wallet addresses being monitored |
-| `whale_transactions` | Detected whale token movements |
+| `tracked_wallets` | 50 whale wallet addresses being monitored |
+| `whale_transactions` | Detected whale token movements (>= $10K, valued only) |
 | `intelligence_alerts` | Smart money signals (the core output) |
 
 Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT policies for dashboard access.
@@ -112,11 +112,16 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 `analysis/smart_money.py` cross-references whale activity vs social sentiment to detect 4 patterns:
 
 1. **stealth_accumulation** — whales buying, crowd not talking about it (bullish signal)
-2. **empty_hype** — crowd hyping, no whale backing (bearish signal)
+2. **empty_hype** — crowd hyping, no whale backing (bearish/caution signal)
 3. **smart_money_buying_fear** — whales buying during fear/dips (contrarian bullish)
 4. **smart_money_exit_hype** — whales selling during euphoria (contrarian bearish)
 
-Alerts are stored in `intelligence_alerts` with severity (low/medium/high/critical) and confidence scores.
+### Tuning & Filters
+- **Stablecoins excluded**: USDT, USDC, DAI, etc. never generate alerts (stablecoin movements aren't position signals)
+- **Major coins (BTC, ETH, SOL, etc.)** need 5x higher social mention threshold to trigger empty hype (they always have high mentions)
+- **Empty hype confidence capped at 0.70** — weakest signal type (no whale confirmation, just absence of buying)
+- **Severity thresholds**: critical >= 0.75, high >= 0.50, medium >= 0.25, low < 0.25
+- **Minimum confidence 0.15** to generate any alert
 
 ## Dashboard Components
 
@@ -124,10 +129,10 @@ Alerts are stored in `intelligence_alerts` with severity (low/medium/high/critic
 |-----------|---------|
 | `DashboardShell.tsx` | Client wrapper, holds state, auto-refresh every 5 min |
 | `MarketMood.tsx` | Fear & Greed gauge (0-100) |
-| `IntelligenceAlerts.tsx` | Smart money signals table (primary section) |
+| `IntelligenceAlerts.tsx` | Smart money signals — card layout, max 6, coin-validated |
 | `TopMovers.tsx` | Gainers/Losers side-by-side cards |
-| `SocialBuzz.tsx` | Social mention counts + sentiment |
-| `WhaleActivity.tsx` | Whale transaction feed |
+| `SocialBuzz.tsx` | Social mention counts + sentiment (top 250 coins only) |
+| `WhaleActivity.tsx` | Whale transaction feed (real on-chain data) |
 | `TrendingCoins.tsx` | Trending coins across sources |
 | `NarrativeMomentum.tsx` | Narrative momentum bars |
 | `RefreshIndicator.tsx` | "Last updated X min ago" |
@@ -138,31 +143,42 @@ Alerts are stored in `intelligence_alerts` with severity (low/medium/high/critic
 - `utils.utcnow()` everywhere for timezone-aware datetimes
 - ASCII chars for Windows terminal compatibility in CLI
 - Bulk coin fetching via `coin_map` dict (avoids N+1 queries)
-- FK constraint handling: upsert coins before inserting referencing records
+- FK constraint handling: `db.ensure_coins_exist()` with `ignore_duplicates=True` (ON CONFLICT DO NOTHING) — social collectors create placeholder coins without overwriting CoinGecko's proper names
 - Force UTF-8 stdout wrapper in `cli.py` for Windows
 - `upsert_tracked_wallets()` uses `on_conflict="address,chain"`
-- NOISE_WORDS filter in `queries.ts` to exclude common English words from social buzz
+- NOISE_WORDS filter (80+ words) in `queries.ts` to exclude common English words from social buzz
 - DEX pool addresses (`dex:` prefix) filtered from trending and social queries
+- Social Buzz and Intelligence Alerts require coins to have price snapshots (i.e., in CoinGecko top 250) — eliminates obscure noise coins
 - System fonts (no Google Fonts) to avoid build failures on Vercel
 - ISR with `revalidate = 300` (5 min) on server + client-side setInterval refresh
+- Etherscan **V2 API** (`api.etherscan.io/v2/api` with `chainid=1`) — V1 is deprecated
+
+## Bugs Fixed (important to not reintroduce)
+
+- **Coin name corruption**: 4chan/reddit collectors used to upsert `Coin(id=x, name=x, symbol=x)` overwriting CoinGecko's proper names. Fixed with `db.ensure_coins_exist()` using ON CONFLICT DO NOTHING. **Never use `db.upsert_coins()` from social collectors.**
+- **Etherscan V1 deprecated**: Whale tracker now uses V2 API at `api.etherscan.io/v2/api` with `chainid=1` parameter.
+- **Reddit set/list bug**: `_collect_subreddit()` was converting sets to lists after first subreddit, causing `.add()` to fail. Set-to-list conversion moved to `collect()` method.
+- **Whale dust transactions**: Threshold raised to $10K and requires USD valuation (`amount_usd is None` → skip). Unknown tokens without price data are excluded.
+- **Social false positives**: "just", "rain", "cash", "four" etc. matched as coin names. Fixed with 80+ word NOISE_WORDS set and requiring coins to exist in CoinGecko top 250 with proper names.
 
 ## Known Issues & Future Work
 
 - **Whale Alert API key**: not yet configured (needs paid plan from https://whale-alert.io)
-- **Whale tracker**: scans Etherscan wallets but finds 0 transactions when tracked wallets haven't moved recently — this is normal
-- **Intelligence alerts**: quality depends on data volume — more collectors running = better cross-referencing
+- **Intelligence quality improves with data volume**: system needs to run continuously for days/weeks to build reliable baselines for social mention averages
 - **Reddit rate limits**: Reddit API has strict rate limits; the "redittest" app is registered for personal use
-- **GeckoTerminal trending**: returns DEX pool addresses as coin_ids — these are filtered in dashboard queries but stored raw in DB
+- **GeckoTerminal trending**: returns DEX pool addresses as coin_ids — filtered in dashboard queries but stored raw in DB
+- **Sentiment false positives**: `analysis/sentiment.py` loads coin vocabulary from DB dynamically — obscure coins with short names (3-4 chars) can match common English words in text
 - **Not yet built**: `output/api.py` (FastAPI endpoints), `output/dashboard.py` (Streamlit)
+- **Potential improvements**: historical price charts, portfolio tracking, alert notifications (email/telegram), more whale wallets, multi-chain support (not just Ethereum)
 
 ## File Structure
 
 ```
 CryptoDash/
 ├── main.py                  # Entry point (--collect, --dashboard, --scheduler)
-├── config.py                # Configuration
+├── config.py                # Configuration + thresholds
 ├── models.py                # Pydantic data models
-├── db.py                    # Supabase client + DB operations
+├── db.py                    # Supabase client + DB operations (incl. ensure_coins_exist)
 ├── utils.py                 # Utilities (utcnow, etc.)
 ├── scheduler.py             # APScheduler job registration
 ├── requirements.txt         # Python dependencies
@@ -172,18 +188,18 @@ CryptoDash/
 │
 ├── collectors/              # Data collection
 │   ├── base.py              # Base collector class
-│   ├── coingecko.py         # CoinGecko prices + trending
+│   ├── coingecko.py         # CoinGecko prices + trending (source of truth for coin names)
 │   ├── alternative_me.py    # Fear & Greed Index
 │   ├── free_crypto_news.py  # CryptoCompare news
 │   ├── defillama.py         # DeFi Llama TVL
 │   ├── geckoterminal.py     # DEX trending/new pools
-│   ├── fourchan.py          # 4chan /biz/ sentiment
-│   ├── reddit.py            # Reddit PRAW sentiment
-│   ├── whale_tracker.py     # Etherscan wallet tracking
-│   └── whale_alert.py       # Whale Alert API
+│   ├── fourchan.py          # 4chan /biz/ sentiment (uses ensure_coins_exist)
+│   ├── reddit.py            # Reddit PRAW sentiment (uses ensure_coins_exist)
+│   ├── whale_tracker.py     # Etherscan V2 wallet tracking (>= $10K, valued only)
+│   └── whale_alert.py       # Whale Alert API (not configured)
 │
 ├── analysis/                # Intelligence engine
-│   ├── smart_money.py       # Core: whale vs social cross-reference
+│   ├── smart_money.py       # Core: whale vs social cross-reference (excludes stablecoins + major coin thresholds)
 │   ├── sentiment.py         # VADER sentiment + coin extraction
 │   ├── summary.py           # Bulk coin fetch helpers
 │   ├── divergence.py        # Signal divergence detection
@@ -195,7 +211,7 @@ CryptoDash/
 │   └── intelligence_brief.py # Natural language briefs
 │
 ├── data/
-│   └── whale_wallets.json   # 40 verified Ethereum addresses
+│   └── whale_wallets.json   # 50 verified Ethereum addresses (exchanges, funds, VCs)
 │
 ├── supabase/
 │   ├── config.toml
@@ -214,10 +230,10 @@ CryptoDash/
         │   ├── layout.tsx    # Dark theme, system fonts
         │   ├── page.tsx      # Server component, ISR 5 min
         │   └── globals.css   # Dark theme CSS
-        ├── components/       # 10 React components (see above)
+        ├── components/       # 10 React components (see table above)
         └── lib/
             ├── supabase.ts   # Supabase client (anon key)
             ├── types.ts      # TypeScript interfaces
-            ├── queries.ts    # All data fetching logic
+            ├── queries.ts    # All data fetching + noise filtering + coin validation
             └── format.ts     # USD/number/time formatting
 ```

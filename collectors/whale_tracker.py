@@ -81,7 +81,15 @@ class WhaleTrackerCollector(BaseCollector):
 
         transactions = []
         for tx in data.get("result", []):
-            direction = "in" if tx["to"].lower() == wallet.address.lower() else "out"
+            raw_dir = "in" if tx["to"].lower() == wallet.address.lower() else "out"
+
+            # Semantic direction depends on entity type:
+            # Exchange: tokens IN = someone depositing to sell; tokens OUT = someone withdrew (bought)
+            # Fund/VC:  tokens IN = fund is receiving/buying; tokens OUT = fund is sending/selling
+            if wallet.entity_type == "exchange":
+                direction = "sell" if raw_dir == "in" else "buy"
+            else:
+                direction = "buy" if raw_dir == "in" else "sell"
 
             token_symbol = tx.get("tokenSymbol", "")
             amount_raw = int(tx.get("value", 0))

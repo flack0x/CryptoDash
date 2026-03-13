@@ -48,6 +48,33 @@ _SYMBOL_MAP = {
 # Short symbols that are common English words — require $ prefix
 _AMBIGUOUS_SYMBOLS = {"OP", "W", "AR", "PI", "SUI", "SEI", "NEAR"}
 
+# Symbols/names loaded from DB that are common English words — never auto-match
+# These are real coins but their tickers cause massive false positives on social media
+_EXCLUDED_DB_SYMBOLS = {
+    "REAL", "CASH", "SAFE", "TRUE", "OPEN", "PLAY", "RARE", "HIGH", "FIRE",
+    "EVER", "FUEL", "GATE", "KEEP", "MOVE", "PUSH", "SEED", "TURN", "WRAP",
+    "RISE", "SWAP", "UNIT", "WAVE", "ZERO", "EDGE", "FLUX", "HIVE", "MASK",
+    "NEST", "CORE", "VIBE", "ACE", "AMP", "HEX", "ION", "ORB", "NET",
+    "HOT", "KEY", "WIN", "RUN", "PAY", "GAS", "MAP", "RAY", "ANY",
+    "ONE", "DAY", "TIME", "WAY", "BACK", "LONG", "FREE", "BIG", "TOP",
+    "JUST", "RAIN", "FOUR", "STAR", "HOPE", "LIVE", "MINE", "LIKE",
+    "PUMP", "MOON", "BEAR", "BULL", "DOGE", "NFT", "APE",
+    "GREAT", "SUPER", "ALPHA", "BETA", "MAGIC", "OCEAN", "PIXEL",
+    "SPELL", "TRIBE", "WING", "BONE", "CREAM", "FARM", "CAKE",
+}
+
+_EXCLUDED_DB_NAMES = {
+    # Common English words that are also coin names — massive false positive risk
+    "cash", "real", "safe", "true", "open", "play", "rare", "fire",
+    "mask", "nest", "core", "vibe", "edge", "hive", "rise", "wave",
+    "magic", "ocean", "alpha", "super", "spell", "cream", "farm",
+    "reserve", "standard", "origin", "anchor", "aurora", "dawn",
+    "just", "rain", "four", "aster", "night", "midnight", "story",
+    "send", "hunt", "yield", "orbit", "blur", "meme", "coin",
+    "fuel", "keep", "loom", "wrap", "turn", "push", "seed",
+    "ever", "hope", "star", "mine", "like", "live", "only",
+}
+
 # Full name map (lowercase)
 _NAME_MAP = {
     "bitcoin": "bitcoin", "ethereum": "ethereum", "solana": "solana",
@@ -100,10 +127,18 @@ class SentimentAnalyzer:
             if re.search(pattern, text_upper):
                 found.add(coin_id)
 
-        # Check full names (case-insensitive)
+        # Check full names (case-insensitive, word-bounded for short names)
         for name, coin_id in self._name_map.items():
-            if len(name) >= 4 and name in text_lower:
-                found.add(coin_id)
+            if len(name) < 4:
+                continue
+            if len(name) < 7:
+                # Short names need word boundary to avoid "rain" in "training"
+                if re.search(r'\b' + re.escape(name) + r'\b', text_lower):
+                    found.add(coin_id)
+            else:
+                # Longer names (7+ chars) are specific enough for substring match
+                if name in text_lower:
+                    found.add(coin_id)
 
         return found
 
@@ -115,10 +150,15 @@ class SentimentAnalyzer:
             coins = db.get_all_coins()
             for coin in coins:
                 sym = coin.symbol.upper()
-                if len(sym) >= 3 and sym not in self._symbol_map:
+                if (len(sym) >= 3
+                        and sym not in self._symbol_map
+                        and sym not in _EXCLUDED_DB_SYMBOLS
+                        and sym not in _AMBIGUOUS_SYMBOLS):
                     self._symbol_map[sym] = coin.id
                 name = coin.name.lower()
-                if len(name) >= 4 and name not in self._name_map:
+                if (len(name) >= 4
+                        and name not in self._name_map
+                        and name not in _EXCLUDED_DB_NAMES):
                     self._name_map[name] = coin.id
         except Exception:
             pass  # DB may not be ready

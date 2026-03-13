@@ -113,11 +113,11 @@ def _aggregate_whale_activity(now, window) -> dict:
         r = result[tx.coin_id]
         r["tx_count"] += 1
 
-        if tx.direction == "out":  # OUT of exchange = buying/accumulating
+        if tx.direction == "buy":
             r["buy_usd"] += tx.amount_usd
             r["net_usd"] += tx.amount_usd
             entity_tracker[tx.coin_id][tx.label] += tx.amount_usd
-        elif tx.direction == "in":  # IN to exchange = selling/dumping
+        elif tx.direction == "sell":
             r["sell_usd"] += tx.amount_usd
             r["net_usd"] -= tx.amount_usd
             entity_tracker[tx.coin_id][tx.label] -= tx.amount_usd

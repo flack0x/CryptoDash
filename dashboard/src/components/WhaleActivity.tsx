@@ -4,8 +4,11 @@ import type { WhaleTransaction } from "@/lib/types";
 import { formatUSD, timeAgo } from "@/lib/format";
 
 const directionStyle: Record<string, { label: string; color: string }> = {
-  in: { label: "SELL", color: "text-red-400" },
-  out: { label: "BUY", color: "text-green-400" },
+  buy: { label: "BUY", color: "text-green-400" },
+  sell: { label: "SELL", color: "text-red-400" },
+  // Legacy fallbacks for old data
+  in: { label: "IN", color: "text-blue-400" },
+  out: { label: "OUT", color: "text-yellow-400" },
   transfer: { label: "XFER", color: "text-gray-400" },
 };
 
@@ -18,7 +21,7 @@ export default function WhaleActivity({ transactions }: { transactions: WhaleTra
       {transactions.length === 0 ? (
         <div className="text-gray-500 text-sm space-y-1">
           <p>No whale movements detected in tracked wallets.</p>
-          <p className="text-gray-600 text-xs">Monitoring 40 wallets (exchanges, VCs, funds). Data appears when large token transfers occur.</p>
+          <p className="text-gray-600 text-xs">Monitoring 50 wallets (exchanges, VCs, funds). Data appears when large token transfers occur.</p>
         </div>
       ) : (
         <div className="overflow-x-auto">
