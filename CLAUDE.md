@@ -66,7 +66,7 @@ git add -A && git commit -m "message" && git push
 - All secrets stored as GitHub repository secrets (SUPABASE_URL, SUPABASE_SERVICE_KEY, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, ETHERSCAN_API_KEY)
 - Manual trigger: `gh workflow run collect.yml` or from GitHub UI
 - Each run: installs deps (pip cached), runs all collectors + analysis (~3 min)
-- **Confirmed working as of 2026-03-13**: cron fires automatically, all collectors succeed, ~91 reddit signals + 70 4chan signals + 250 CoinGecko coins per run
+- **Confirmed working as of 2026-03-13** (health-checked 2026-03-13 22:45 UTC): 12/12 runs successful since launch, all collectors + analysis producing data. DB stats after ~7 hours: 448 coins, 4750 snapshots, 2348 social signals, 447 whale txs, 85 intelligence alerts, 665 trending, 4253 on-chain, 50 tracked wallets. Index/table hit rate: 1.00. No errors.
 
 ### Local Daemon Mode (backup — only if needed)
 - `python main.py --daemon` or `start_collector.bat` / `stop_collector.bat`
@@ -99,6 +99,8 @@ REDDIT_CLIENT_SECRET=fyGd0VsemZtPORcTyNlZTNAgwNHIAQ
 ETHERSCAN_API_KEY=BQ5FS9KZ7TSEYPTRBB8Y9C54FIR8CF8RW3
 ```
 
+**Note:** `.env` is NOT present locally — the user runs everything via GitHub Actions. All keys are stored as GitHub repository secrets. Running `python main.py` locally will fail with `supabase_key is required`. This is by design.
+
 Dashboard env is in `dashboard/.env.local` (not committed):
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://baptgroflunptsjqfsfx.supabase.co
@@ -121,8 +123,11 @@ Same env vars are set in Vercel project settings for production builds.
 | `tracked_wallets` | 50 whale wallet addresses being monitored |
 | `whale_transactions` | Detected whale token movements (>= $10K, valued only) |
 | `intelligence_alerts` | Smart money signals (the core output) |
+| `dev_activity` | GitHub dev activity (unused, 0 rows) |
 
 Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT policies for dashboard access.
+
+**All timestamp columns are named `ts`** (not `collected_at`/`created_at`/`detected_at`). When querying via REST API: `?order=ts.desc&limit=1`.
 
 ## Smart Money Intelligence Engine
 
@@ -136,7 +141,7 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 ### Tuning & Filters
 - **Stablecoins excluded**: USDT, USDC, DAI, etc. never generate alerts (stablecoin movements aren't position signals)
 - **Major coins (BTC, ETH, SOL, etc.)** need 5x higher social mention threshold to trigger empty hype (they always have high mentions)
-- **Empty hype confidence capped at 0.70** — weakest signal type (no whale confirmation, just absence of buying)
+- **Empty hype confidence**: base cap 0.70 (absence of buying), boosted to max 0.80 when whales are **actively selling** (`sell_usd > buy_usd`). Weakest signal type overall but the sell-boost variant is stronger.
 - **Severity thresholds**: critical >= 0.75, high >= 0.50, medium >= 0.25, low < 0.25
 - **Minimum confidence 0.15** to generate any alert
 - **Analysis re-runs every 30 min** in daemon mode (scheduled job in `scheduler.py`)
@@ -144,7 +149,7 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 
 ### Dashboard Data Quality Filters
 - **Intelligence Alerts**: Enriched with price data (price, 24h change, market cap) via `EnrichedAlert` type. Only shows coins in CoinGecko top 250 with proper names.
-- **Social Buzz**: Requires $50M+ market cap. NOISE_WORDS (80+), NOISE_COIN_IDS blocklist, and coins table validation.
+- **Social Buzz**: Requires $50M+ market cap. NOISE_WORDS (80+), NOISE_COIN_IDS blocklist, coins table validation, and **STABLECOIN_COIN_IDS filter** (tether, usd-coin, dai, etc. excluded — stablecoin sentiment is meaningless).
 - **Whale Activity**: 48h time window, sorted by value, stablecoins only shown if >= $500K. Deduped by `wallet_address + token_symbol + amount + direction` in `queries.ts`.
 - **VADER Sentiment thresholds**: Bullish > 0.08, Bearish < -0.08 (lowered from 0.2 because aggregated 4chan/reddit scores cluster near zero).
 - **Narrative Momentum**: Normalized by signal count (average mentions per signal, not raw sum). Volume snapshots deduplicated per coin per period. Prevents inflation when collection periods have different run counts.
@@ -195,6 +200,35 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **ETC false positive**: "etc." in text matched as Ethereum Classic. Fixed: added "ETC" to `_AMBIGUOUS_SYMBOLS` in `sentiment.py` (only matches `$ETC`).
 - **Narrative momentum inflation**: All narratives showed "Rising" +120% to +419%. Root cause: momentum summed raw mentions across ALL collection runs; recent half had more runs than older half, inflating the ratio. Fixed in `analysis/narratives.py`: normalized by signal count (average mentions per signal instead of raw sum) and deduplicated volume snapshots per coin (keep latest per period). **Never sum raw mentions across signals — always normalize by count.**
 - **Whale transaction duplicates on dashboard**: Same blockchain tx collected multiple times showed as duplicates. Fixed in `queries.ts`: dedup by `wallet_address + token_symbol + amount + direction` key.
+- **Stablecoins in Social Buzz**: USDC/USDT/DAI etc. appeared in Social Buzz with "Bullish"/"Very Bullish" sentiment — meaningless noise. Fixed: added `STABLECOIN_COIN_IDS` filter to `getSocialBuzz()` in `queries.ts`. Stablecoins were already filtered from Whale Activity and Intelligence Alerts but not Social Buzz.
+
+## Health Check Commands
+
+```bash
+# GitHub Actions — check recent runs (should show "completed success" every ~30-60 min)
+gh run list --workflow=collect.yml --limit=10
+
+# GitHub Actions — view logs from latest run
+gh run list --workflow=collect.yml --limit=1 --json databaseId -q '.[0].databaseId' | xargs -I{} gh run view {} --log 2>/dev/null | tail -80
+
+# Supabase — row counts via REST API (uses anon key from dashboard/.env.local)
+# Use curl with header: -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY"
+# Endpoint: https://baptgroflunptsjqfsfx.supabase.co/rest/v1/{table}?select=*&order=ts.desc&limit=1
+
+# Supabase CLI — DB health (requires `supabase link` to project)
+supabase inspect db table-stats --linked    # Table sizes + row counts
+supabase inspect db index-stats --linked    # Index usage (look for unused indexes)
+supabase inspect db cache-hit --linked      # Cache hit ratio (should be ~1.00)
+supabase inspect db outliers --linked       # Slowest queries
+supabase inspect db long-running-queries --linked  # Stuck queries
+supabase inspect db bloat --linked          # Table/index bloat
+
+# Supabase CLI — logs command NOT available in v2.75.0 (needs v2.78.1+)
+# Use Supabase dashboard UI for logs: https://supabase.com/dashboard/project/baptgroflunptsjqfsfx/logs
+
+# Vercel — check dashboard is live
+curl -s "https://dashboard-six-rouge-13.vercel.app" -o /dev/null -w "HTTP status: %{http_code}\n"
+```
 
 ## Known Issues & Future Work
 

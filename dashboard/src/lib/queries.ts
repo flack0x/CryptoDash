@@ -286,6 +286,7 @@ async function getSocialBuzz(): Promise<SocialBuzz[]> {
 
   return sorted
     .filter(([coin_id]) => {
+      if (STABLECOIN_COIN_IDS.has(coin_id)) return false; // Stablecoin sentiment is meaningless
       const coin = coinMap.get(coin_id);
       if (!coin || coin.name === coin.id || coin.symbol === coin.id) return false;
       const mktCap = validSnaps.get(coin_id) ?? 0;
@@ -302,8 +303,9 @@ async function getSocialBuzz(): Promise<SocialBuzz[]> {
     }));
 }
 
-// Stablecoin movements aren't interesting whale signals — just cash moving around
+// Stablecoins — not interesting for social buzz or whale signals (just cash moving around)
 const STABLECOIN_SYMBOLS = new Set(["USDT", "USDC", "DAI", "TUSD", "BUSD", "USDP", "FRAX", "PYUSD"]);
+const STABLECOIN_COIN_IDS = new Set(["tether", "usd-coin", "dai", "true-usd", "binance-usd", "pax-dollar", "frax", "paypal-usd"]);
 
 async function getWhaleActivity(): Promise<WhaleTransaction[]> {
   // Only show recent whale activity — old transactions destroy trust
