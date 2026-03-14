@@ -120,7 +120,7 @@ Same env vars are set in Vercel project settings for production builds.
 | `social_signals` | Social mentions + sentiment per coin per source |
 | `on_chain` | DeFi protocol TVL data |
 | `narratives` | Narrative themes + momentum scores |
-| `tracked_wallets` | 50 whale wallet addresses being monitored |
+| `tracked_wallets` | 96 whale wallet addresses being monitored |
 | `whale_transactions` | Detected whale token movements (>= $10K, valued only) |
 | `intelligence_alerts` | Smart money signals (the core output) |
 | `dev_activity` | GitHub dev activity (unused, 0 rows) |
@@ -201,6 +201,8 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **Narrative momentum inflation**: All narratives showed "Rising" +120% to +419%. Root cause: momentum summed raw mentions across ALL collection runs; recent half had more runs than older half, inflating the ratio. Fixed in `analysis/narratives.py`: normalized by signal count (average mentions per signal instead of raw sum) and deduplicated volume snapshots per coin (keep latest per period). **Never sum raw mentions across signals — always normalize by count.**
 - **Whale transaction duplicates on dashboard**: Same blockchain tx collected multiple times showed as duplicates. Fixed in `queries.ts`: dedup by `wallet_address + token_symbol + amount + direction` key.
 - **Stablecoins in Social Buzz**: USDC/USDT/DAI etc. appeared in Social Buzz with "Bullish"/"Very Bullish" sentiment — meaningless noise. Fixed: added `STABLECOIN_COIN_IDS` filter to `getSocialBuzz()` in `queries.ts`. Stablecoins were already filtered from Whale Activity and Intelligence Alerts but not Social Buzz.
+- **False empty hype for non-ETH tokens**: Empty hype alerts fired for HYPE (Hyperliquid L1), DOT (Polkadot), etc. saying "no whale buying detected" — but we only track Ethereum wallets, so this was "we're blind" not "nobody's buying." Fixed: added `TRACKABLE_COINS` set to `smart_money.py`, empty hype only fires for ERC-20 tokens in our `TOKEN_SYMBOL_MAP`.
+- **Whale tracker only checked 20/50 wallets per run**: `wallets[:20]` limit meant it took 3 runs (~1.5 hours) to check all wallets. Fixed: now checks ALL wallets every run. At 0.35s/call, 96 wallets = ~34 seconds, well within GitHub Actions budget.
 
 ## Health Check Commands
 
@@ -234,7 +236,7 @@ curl -s "https://dashboard-six-rouge-13.vercel.app" -o /dev/null -w "HTTP status
 
 - **Whale Alert API key**: not yet configured (needs paid plan from https://whale-alert.io)
 - **Intelligence quality improves with data volume**: system needs to run continuously for days/weeks to build reliable baselines for social mention averages. **GitHub Actions started 2026-03-13 ~16:00 UTC — expect reliable signals after 48-72 hours of continuous collection.**
-- **Empty hype alerts for non-ETH tokens are structurally weak**: We only track 50 Ethereum wallets. Alerts like "no whale buying detected" for DOT (Polkadot-native), HNT (Solana), etc. mean "we can't see" not "it's not happening." These should be treated with skepticism until multi-chain wallet tracking is added.
+- **Empty hype alerts now restricted to trackable ERC-20 tokens**: `TRACKABLE_COINS` set in `smart_money.py` ensures empty hype only fires for coins we can actually see whale activity for. Non-ERC-20 tokens (Solana-native, Polkadot-native, Hyperliquid, etc.) are excluded — "we can't see" is NOT a signal. **If you add new tokens to `TOKEN_SYMBOL_MAP` in `whale_tracker.py`, also add them to `TRACKABLE_COINS` in `smart_money.py`.**
 - **CryptoCompare API intermittently returns empty data**: `[crypto_news] API returned error or no data` appears in logs occasionally. This is their API being flaky, not our code. Non-critical — other collectors cover the gap.
 - **Reddit rate limits**: Reddit API has strict rate limits; the "redittest" app is registered for personal use
 - **GeckoTerminal trending**: returns DEX pool addresses as coin_ids — filtered in dashboard queries but stored raw in DB
@@ -289,7 +291,7 @@ CryptoDash/
 │   └── intelligence_brief.py # Natural language briefs
 │
 ├── data/
-│   └── whale_wallets.json   # 50 verified Ethereum addresses (exchanges, funds, VCs)
+│   └── whale_wallets.json   # 96 verified Ethereum addresses (exchanges, funds, VCs, whales)
 │
 ├── supabase/
 │   ├── config.toml

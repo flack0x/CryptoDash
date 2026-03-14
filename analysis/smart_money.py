@@ -32,6 +32,20 @@ MAJOR_COINS = {
     "cardano", "dogecoin", "toncoin", "tron", "avalanche-2",
 }
 
+# Coins we can ACTUALLY track whale activity for (ERC-20 tokens in our TOKEN_SYMBOL_MAP).
+# Only these should generate empty_hype alerts — saying "no whale buying" for coins
+# on other chains (Solana, Hyperliquid, Polkadot, etc.) is misleading because we're blind.
+# Derived from collectors/whale_tracker.py TOKEN_SYMBOL_MAP values minus EXCLUDED_COINS.
+TRACKABLE_COINS = {
+    "ethereum", "aave", "uniswap", "chainlink", "maker", "curve-dao-token",
+    "lido-dao", "arbitrum", "optimism", "pepe", "shiba-inu",
+    "ethereum-name-service", "rocket-pool", "synthetix-network-token",
+    "compound-governance-token", "sushi", "1inch", "balancer", "fetch-ai",
+    "render-token", "the-graph", "immutable-x", "ondo-finance", "pendle",
+    "dogecoin", "matic-network", "filecoin", "the-sandbox", "decentraland",
+    "axie-infinity", "bittensor", "worldcoin",
+}
+
 
 def detect_smart_money_signals(window_hours: int = None) -> list[IntelligenceAlert]:
     """Cross-reference whale activity against social sentiment to find the gap."""
@@ -173,7 +187,10 @@ def _detect_patterns(coin_id, social, whale, now, is_major=False) -> list[Intell
     # === EMPTY HYPE ===
     # Social mentions way above average, whales not buying
     # This is the weakest signal — no whale data to confirm, just absence of buying
-    if mention_ratio > hype_ratio and mentions > min_mentions and net_whale < 100_000:
+    # ONLY for coins we can actually track (ERC-20s in our whale tracker).
+    # Saying "no whale buying" for coins on other chains is misleading — we're blind, not informed.
+    if (coin_id in TRACKABLE_COINS and
+            mention_ratio > hype_ratio and mentions > min_mentions and net_whale < 100_000):
         confidence = min(0.70, mention_ratio / (10.0 if is_major else 6.0))
         if sell_usd > buy_usd:
             confidence = min(0.80, confidence + 0.15)

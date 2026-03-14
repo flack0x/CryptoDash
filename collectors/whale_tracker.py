@@ -50,13 +50,14 @@ class WhaleTrackerCollector(BaseCollector):
             return
 
         total_txs = 0
-        # Process wallets in batches to stay within rate limits
-        for wallet in wallets[:20]:  # Check up to 20 wallets per cycle
+        # Check ALL wallets every run — at 0.35s per call, 100 wallets = ~35 seconds
+        # well within GitHub Actions' 3-minute run budget
+        for wallet in wallets:
             txs = self._track_wallet(wallet)
             total_txs += txs
             db.update_wallet_last_checked(wallet.address, wallet.chain)
 
-        logger.info(f"[{self.name}] Tracked {len(wallets[:20])} wallets, found {total_txs} transactions")
+        logger.info(f"[{self.name}] Tracked {len(wallets)} wallets, found {total_txs} transactions")
 
     def _track_wallet(self, wallet: TrackedWallet) -> int:
         """Fetch recent ERC-20 token transfers for a wallet. Returns count of new transactions."""
