@@ -171,9 +171,8 @@ def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0) 
     sell_usd = whale["sell_usd"]
     entities = whale["entities"]
 
-    # Market-cap-relative whale threshold: whale move must be at least 0.1% of market cap
-    # to matter. $1.2M on SHIB ($3.4B) = 0.035% = noise. $1.2M on a $50M coin = 2.4% = signal.
-    min_usd = max(config.WHALE_MIN_USD, market_cap * 0.001) if market_cap > 0 else config.WHALE_MIN_USD
+    # Market-cap-relative whale threshold
+    min_usd = max(config.WHALE_MIN_USD, market_cap * config.MCAP_WHALE_MULTIPLIER) if market_cap > 0 else config.WHALE_MIN_USD
 
     mention_ratio = mentions / avg_mentions if avg_mentions > 0 else 0
 
@@ -190,7 +189,7 @@ def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0) 
     # Whale buying significant, social mentions below average
     # REQUIRES social visibility — "0 mentions with avg 0" is blindness, not stealth.
     if net_whale > min_usd and mention_ratio < config.STEALTH_MENTION_RATIO:
-        confidence = min(0.95, (net_whale / 10_000_000) * (1 - mention_ratio))
+        confidence = min(0.95, (net_whale / config.STEALTH_CONFIDENCE_DENOM) * (1 - mention_ratio))
         # Scale by social visibility: no social data = no stealth signal
         confidence *= social_visibility
         if confidence >= 0.15:
@@ -237,8 +236,8 @@ def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0) 
 
     # === SMART MONEY BUYING FEAR ===
     # Negative sentiment but whales accumulating
-    if sentiment < -0.2 and net_whale > min_usd:
-        confidence = min(0.95, abs(sentiment) * (net_whale / 5_000_000))
+    if sentiment < config.BUYING_FEAR_SENTIMENT and net_whale > min_usd:
+        confidence = min(0.95, abs(sentiment) * (net_whale / config.EXIT_FEAR_CONFIDENCE_DENOM))
         if confidence >= 0.15:
             alerts.append(IntelligenceAlert(
                 timestamp=now,
@@ -257,8 +256,8 @@ def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0) 
 
     # === SMART MONEY EXIT HYPE ===
     # Positive sentiment but whales dumping
-    if sentiment > 0.3 and net_whale < -min_usd:
-        confidence = min(0.95, sentiment * (abs(net_whale) / 5_000_000))
+    if sentiment > config.EXIT_HYPE_SENTIMENT and net_whale < -min_usd:
+        confidence = min(0.95, sentiment * (abs(net_whale) / config.EXIT_FEAR_CONFIDENCE_DENOM))
         if confidence >= 0.15:
             alerts.append(IntelligenceAlert(
                 timestamp=now,
