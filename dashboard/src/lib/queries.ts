@@ -328,10 +328,13 @@ async function getWhaleActivity(): Promise<WhaleTransaction[]> {
   });
 
   // Non-stablecoin transactions first (the interesting ones), then large stablecoin moves
+  // Cap stablecoins at 3 max — exchange treasury ops (rebalancing, market making) are noise,
+  // not trading signals. The actual token trades (COMP, FET, etc.) are what matters.
   const nonStable = deduped.filter((tx) => !STABLECOIN_SYMBOLS.has(tx.token_symbol?.toUpperCase()));
   const stableBig = deduped
     .filter((tx) => STABLECOIN_SYMBOLS.has(tx.token_symbol?.toUpperCase()))
-    .filter((tx) => (tx.amount_usd ?? 0) >= 500_000); // Only $500K+ stablecoin moves
+    .filter((tx) => (tx.amount_usd ?? 0) >= 500_000) // Only $500K+ stablecoin moves
+    .slice(0, 3); // Max 3 stablecoin entries — don't drown real token trades
 
   return [...nonStable, ...stableBig].slice(0, 10);
 }

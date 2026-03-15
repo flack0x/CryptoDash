@@ -143,6 +143,27 @@ def get_latest_snapshot(coin_id: str) -> Optional[MarketSnapshot]:
     return None
 
 
+def get_latest_market_caps(coin_ids: list[str]) -> dict[str, float]:
+    """Bulk fetch latest market cap for a list of coins. Returns {coin_id: market_cap}."""
+    if not coin_ids:
+        return {}
+    client = get_client()
+    result = (
+        client.table("snapshots")
+        .select("coin_id, market_cap")
+        .in_("coin_id", coin_ids)
+        .not_.is_("market_cap", "null")
+        .order("ts", desc=True)
+        .limit(len(coin_ids) * 2)
+        .execute()
+    )
+    caps = {}
+    for r in result.data or []:
+        if r["coin_id"] not in caps and r["market_cap"]:
+            caps[r["coin_id"]] = r["market_cap"]
+    return caps
+
+
 def get_snapshots_since(coin_id: str, since: datetime) -> list[MarketSnapshot]:
     client = get_client()
     result = (

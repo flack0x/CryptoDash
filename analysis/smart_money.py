@@ -63,6 +63,10 @@ def detect_smart_money_signals(window_hours: int = None) -> list[IntelligenceAle
     alerts = []
     all_coins = set(social.keys()) | set(whale.keys())
 
+    # Bulk fetch market caps for whale-active coins (needed for market-cap-relative thresholds)
+    whale_coins = [c for c in all_coins if c in whale and not c.startswith("_") and not c.startswith("dex:")]
+    market_caps = db.get_latest_market_caps(whale_coins) if whale_coins else {}
+
     for coin_id in all_coins:
         if coin_id.startswith("_") or coin_id.startswith("dex:"):
             continue
@@ -73,7 +77,8 @@ def detect_smart_money_signals(window_hours: int = None) -> list[IntelligenceAle
         w = whale.get(coin_id, {"net_usd": 0, "buy_usd": 0, "sell_usd": 0, "entities": []})
 
         is_major = coin_id in MAJOR_COINS
-        coin_alerts = _detect_patterns(coin_id, s, w, now, is_major=is_major)
+        mcap = market_caps.get(coin_id, 0)
+        coin_alerts = _detect_patterns(coin_id, s, w, now, is_major=is_major, market_cap=mcap)
         alerts.extend(coin_alerts)
 
     alerts.sort(key=lambda a: a.confidence, reverse=True)
@@ -146,7 +151,7 @@ def _aggregate_whale_activity(now, window) -> dict:
     return dict(result)
 
 
-def _detect_patterns(coin_id, social, whale, now, is_major=False) -> list[IntelligenceAlert]:
+def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0) -> list[IntelligenceAlert]:
     alerts = []
 
     mentions = social["mentions"]
@@ -156,9 +161,17 @@ def _detect_patterns(coin_id, social, whale, now, is_major=False) -> list[Intell
     buy_usd = whale["buy_usd"]
     sell_usd = whale["sell_usd"]
     entities = whale["entities"]
-    min_usd = config.WHALE_MIN_USD
+
+    # Market-cap-relative whale threshold: whale move must be at least 0.1% of market cap
+    # to matter. $1.2M on SHIB ($3.4B) = 0.035% = noise. $1.2M on a $50M coin = 2.4% = signal.
+    min_usd = max(config.WHALE_MIN_USD, market_cap * 0.001) if market_cap > 0 else config.WHALE_MIN_USD
 
     mention_ratio = mentions / avg_mentions if avg_mentions > 0 else 0
+
+    # Social visibility: how confident are we that our social data reflects reality?
+    # avg_mentions >= 10 = full visibility, 0 = blind. Scale linearly.
+    # Without social visibility, we can't claim "the crowd hasn't noticed" — we just can't see.
+    social_visibility = min(1.0, avg_mentions / 10)
 
     # Major coins need much higher thresholds — BTC/ETH always have high social mentions
     hype_ratio = config.HYPE_MENTION_RATIO * (5 if is_major else 1)
@@ -166,8 +179,11 @@ def _detect_patterns(coin_id, social, whale, now, is_major=False) -> list[Intell
 
     # === STEALTH ACCUMULATION ===
     # Whale buying significant, social mentions below average
+    # REQUIRES social visibility — "0 mentions with avg 0" is blindness, not stealth.
     if net_whale > min_usd and mention_ratio < config.STEALTH_MENTION_RATIO:
         confidence = min(0.95, (net_whale / 10_000_000) * (1 - mention_ratio))
+        # Scale by social visibility: no social data = no stealth signal
+        confidence *= social_visibility
         if confidence >= 0.15:
             alerts.append(IntelligenceAlert(
                 timestamp=now,

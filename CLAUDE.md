@@ -46,7 +46,7 @@ python main.py --collect
 # Run analysis only (on existing data)
 python main.py --analyze
 
-# Default: collect + analyze once
+# Default: collect + analyze once (auto-seeds wallets from whale_wallets.json on every run)
 python main.py
 
 # Dev server for Next.js dashboard
@@ -66,7 +66,7 @@ git add -A && git commit -m "message" && git push
 - All secrets stored as GitHub repository secrets (SUPABASE_URL, SUPABASE_SERVICE_KEY, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, ETHERSCAN_API_KEY)
 - Manual trigger: `gh workflow run collect.yml` or from GitHub UI
 - Each run: installs deps (pip cached), runs all collectors + analysis (~3 min)
-- **Confirmed working as of 2026-03-13** (health-checked 2026-03-13 22:45 UTC): 12/12 runs successful since launch, all collectors + analysis producing data. DB stats after ~7 hours: 448 coins, 4750 snapshots, 2348 social signals, 447 whale txs, 85 intelligence alerts, 665 trending, 4253 on-chain, 50 tracked wallets. Index/table hit rate: 1.00. No errors.
+- **Confirmed working as of 2026-03-15** (latest health-check 2026-03-15 ~09:00 UTC): all runs successful since launch (~40 hours), all collectors + analysis producing data. DB stats: 606 coins, 14,500 snapshots, 10,039 social signals, 3,302 whale txs, 105 tracked wallets (~172 whale txs/run), 2,380 trending, 8,660 on-chain. Index/table hit rate: 1.00. No errors. TRACKABLE_COINS filter active (correctly suppresses false empty hype for non-ERC-20 tokens).
 
 ### Local Daemon Mode (backup — only if needed)
 - `python main.py --daemon` or `start_collector.bat` / `stop_collector.bat`
@@ -120,7 +120,7 @@ Same env vars are set in Vercel project settings for production builds.
 | `social_signals` | Social mentions + sentiment per coin per source |
 | `on_chain` | DeFi protocol TVL data |
 | `narratives` | Narrative themes + momentum scores |
-| `tracked_wallets` | 96 whale wallet addresses being monitored |
+| `tracked_wallets` | 105 whale wallet addresses being monitored (96 from JSON + 9 pre-existing) |
 | `whale_transactions` | Detected whale token movements (>= $10K, valued only) |
 | `intelligence_alerts` | Smart money signals (the core output) |
 | `dev_activity` | GitHub dev activity (unused, 0 rows) |
@@ -142,6 +142,8 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **Stablecoins excluded**: USDT, USDC, DAI, etc. never generate alerts (stablecoin movements aren't position signals)
 - **Major coins (BTC, ETH, SOL, etc.)** need 5x higher social mention threshold to trigger empty hype (they always have high mentions)
 - **Empty hype confidence**: base cap 0.70 (absence of buying), boosted to max 0.80 when whales are **actively selling** (`sell_usd > buy_usd`). Weakest signal type overall but the sell-boost variant is stronger.
+- **Social visibility gate**: stealth accumulation confidence is scaled by `min(1.0, avg_mentions / 10)`. Coins with 0 social baseline get 0 confidence (no alert). Coins with 5 avg mentions get 50% of normal confidence. This prevents "we're blind to social" from being misinterpreted as "the crowd hasn't noticed." **Without social data, there is no divergence to measure.**
+- **Market-cap-relative whale threshold**: `min_usd = max(WHALE_MIN_USD, market_cap * 0.001)`. A $1.2M move on SHIB ($3.4B mcap = 0.035%) is noise. A $1.2M move on a $50M coin (2.4%) is a real signal. Uses bulk `db.get_latest_market_caps()` to avoid N+1 queries.
 - **Severity thresholds**: critical >= 0.75, high >= 0.50, medium >= 0.25, low < 0.25
 - **Minimum confidence 0.15** to generate any alert
 - **Analysis re-runs every 30 min** in daemon mode (scheduled job in `scheduler.py`)
@@ -150,7 +152,7 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 ### Dashboard Data Quality Filters
 - **Intelligence Alerts**: Enriched with price data (price, 24h change, market cap) via `EnrichedAlert` type. Only shows coins in CoinGecko top 250 with proper names.
 - **Social Buzz**: Requires $50M+ market cap. NOISE_WORDS (80+), NOISE_COIN_IDS blocklist, coins table validation, and **STABLECOIN_COIN_IDS filter** (tether, usd-coin, dai, etc. excluded — stablecoin sentiment is meaningless).
-- **Whale Activity**: 48h time window, sorted by value, stablecoins only shown if >= $500K. Deduped by `wallet_address + token_symbol + amount + direction` in `queries.ts`.
+- **Whale Activity**: 48h time window, sorted by value, stablecoins only shown if >= $500K and **capped at 3 max** (exchange treasury rebalancing is noise, not trading signals). Deduped by `wallet_address + token_symbol + amount + direction` in `queries.ts`.
 - **VADER Sentiment thresholds**: Bullish > 0.08, Bearish < -0.08 (lowered from 0.2 because aggregated 4chan/reddit scores cluster near zero).
 - **Narrative Momentum**: Normalized by signal count (average mentions per signal, not raw sum). Volume snapshots deduplicated per coin per period. Prevents inflation when collection periods have different run counts.
 
@@ -176,7 +178,7 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - Bulk coin fetching via `coin_map` dict (avoids N+1 queries)
 - FK constraint handling: `db.ensure_coins_exist()` with `ignore_duplicates=True` (ON CONFLICT DO NOTHING) — social collectors create placeholder coins without overwriting CoinGecko's proper names
 - Force UTF-8 stdout wrapper in `cli.py` for Windows
-- `upsert_tracked_wallets()` uses `on_conflict="address,chain"`
+- `upsert_tracked_wallets()` uses `on_conflict="address,chain"` — called automatically on every `main.py` startup to sync `whale_wallets.json` into DB
 - NOISE_WORDS filter (80+ words) in `queries.ts` to exclude common English words from social buzz
 - DEX pool addresses (`dex:` prefix) filtered from trending and social queries
 - Social Buzz and Intelligence Alerts require coins to have price snapshots (i.e., in CoinGecko top 250) — eliminates obscure noise coins
@@ -202,7 +204,11 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **Whale transaction duplicates on dashboard**: Same blockchain tx collected multiple times showed as duplicates. Fixed in `queries.ts`: dedup by `wallet_address + token_symbol + amount + direction` key.
 - **Stablecoins in Social Buzz**: USDC/USDT/DAI etc. appeared in Social Buzz with "Bullish"/"Very Bullish" sentiment — meaningless noise. Fixed: added `STABLECOIN_COIN_IDS` filter to `getSocialBuzz()` in `queries.ts`. Stablecoins were already filtered from Whale Activity and Intelligence Alerts but not Social Buzz.
 - **False empty hype for non-ETH tokens**: Empty hype alerts fired for HYPE (Hyperliquid L1), DOT (Polkadot), etc. saying "no whale buying detected" — but we only track Ethereum wallets, so this was "we're blind" not "nobody's buying." Fixed: added `TRACKABLE_COINS` set to `smart_money.py`, empty hype only fires for ERC-20 tokens in our `TOKEN_SYMBOL_MAP`.
-- **Whale tracker only checked 20/50 wallets per run**: `wallets[:20]` limit meant it took 3 runs (~1.5 hours) to check all wallets. Fixed: now checks ALL wallets every run. At 0.35s/call, 96 wallets = ~34 seconds, well within GitHub Actions budget.
+- **Whale tracker only checked 20/50 wallets per run**: `wallets[:20]` limit meant it took 3 runs (~1.5 hours) to check all wallets. Fixed: now checks ALL wallets every run. At 0.35s/call, 105 wallets = ~37 seconds, well within GitHub Actions budget.
+- **New wallets not loading to DB**: `seed_wallets()` in `main.py` required `--seed-wallets` flag. GitHub Actions runs `python main.py` without flags, so new wallets added to `whale_wallets.json` never loaded. Fixed: `seed_wallets()` now runs automatically on every startup (upsert is safe — `ON CONFLICT DO NOTHING` on address+chain). `--seed-wallets` flag still works but exits after seeding without running collectors.
+- **Stealth accumulation false confidence from zero social baseline**: Coins with NO social data (avg_mentions=0) automatically got 95% CRITICAL stealth accumulation alerts. "No mentions" meant "we're blind" not "the crowd hasn't noticed." Fixed: confidence now scaled by `social_visibility = min(1.0, avg_mentions / 10)`. Zero social baseline = zero confidence. **Stealth accumulation requires proven social visibility to be meaningful.**
+- **Whale alerts on dust-relative-to-mcap**: $1.2M SHIB move (0.035% of $3.4B mcap) triggered Smart $ Exiting alert. Fixed: `min_usd = max(WHALE_MIN_USD, market_cap * 0.001)` — whale move must be at least 0.1% of market cap. Uses bulk `db.get_latest_market_caps()` to avoid N+1 queries.
+- **Whale Activity section drowned by stablecoins**: 8/10 entries were USDT/USDC exchange treasury operations (rebalancing, market making). Fixed: stablecoins capped at 3 max entries in `queries.ts`. Non-stablecoin token trades always shown first.
 
 ## Health Check Commands
 
@@ -235,15 +241,16 @@ curl -s "https://dashboard-six-rouge-13.vercel.app" -o /dev/null -w "HTTP status
 ## Known Issues & Future Work
 
 - **Whale Alert API key**: not yet configured (needs paid plan from https://whale-alert.io)
-- **Intelligence quality improves with data volume**: system needs to run continuously for days/weeks to build reliable baselines for social mention averages. **GitHub Actions started 2026-03-13 ~16:00 UTC — expect reliable signals after 48-72 hours of continuous collection.**
+- **Intelligence quality improves with data volume**: system needs to run continuously for days/weeks to build reliable baselines for social mention averages. **GitHub Actions started 2026-03-13 ~16:00 UTC.** After ~40 hours of continuous collection (as of 2026-03-15), social baselines are becoming reliable. Stealth accumulation and smart money fear/exit signals now have meaningful data. Full confidence in signals expected after 1 week of continuous collection.
 - **Empty hype alerts now restricted to trackable ERC-20 tokens**: `TRACKABLE_COINS` set in `smart_money.py` ensures empty hype only fires for coins we can actually see whale activity for. Non-ERC-20 tokens (Solana-native, Polkadot-native, Hyperliquid, etc.) are excluded — "we can't see" is NOT a signal. **If you add new tokens to `TOKEN_SYMBOL_MAP` in `whale_tracker.py`, also add them to `TRACKABLE_COINS` in `smart_money.py`.**
 - **CryptoCompare API intermittently returns empty data**: `[crypto_news] API returned error or no data` appears in logs occasionally. This is their API being flaky, not our code. Non-critical — other collectors cover the gap.
 - **Reddit rate limits**: Reddit API has strict rate limits; the "redittest" app is registered for personal use
 - **GeckoTerminal trending**: returns DEX pool addresses as coin_ids — filtered in dashboard queries but stored raw in DB
 - **Sentiment false positives**: `analysis/sentiment.py` has extensive exclusion lists but new common-word coins can still slip through — check Social Buzz after adding new coin data sources
 - **Narrative momentum needs data depth**: Shows 0.0% Stable when data window is < 24h (both halves of comparison window have similar or insufficient signals). Will differentiate naturally after 24-48 hours of continuous collection.
+- **Social coverage has structural blind spots**: We only track reddit (5 subreddits) and 4chan (/biz/). Twitter/X, Telegram, Discord, YouTube are not tracked. Claiming "the crowd hasn't noticed" based on 2 sources is inherently limited. The `social_visibility` gate mitigates this for stealth accumulation (requires avg_mentions >= 10 for full confidence), but the underlying coverage gap remains. **Adding Twitter/X API would be the single biggest improvement to signal quality.**
 - **Not yet built**: `output/api.py` (FastAPI endpoints), `output/dashboard.py` (Streamlit)
-- **Potential improvements**: historical price charts, portfolio tracking, alert notifications (email/telegram), more whale wallets, multi-chain support (not just Ethereum), Solana whale tracking (DEX trades via Helius/Birdeye APIs)
+- **Potential improvements**: Twitter/X social tracking (biggest signal quality improvement), historical price charts, portfolio tracking, alert notifications (email/telegram), multi-chain wallet tracking (Solana DEX trades via Helius/Birdeye APIs, BSC, Arbitrum), more whale wallets beyond current 105
 
 ## Design Intent
 
@@ -253,7 +260,7 @@ This is a **personal trading tool** — the goal is to generate actionable signa
 
 ```
 CryptoDash/
-├── main.py                  # Entry point (--collect, --dashboard, --scheduler)
+├── main.py                  # Entry point (--collect, --analyze, --daemon; auto-seeds wallets every run)
 ├── config.py                # Configuration + thresholds
 ├── models.py                # Pydantic data models
 ├── db.py                    # Supabase client + DB operations (incl. ensure_coins_exist)
@@ -275,11 +282,11 @@ CryptoDash/
 │   ├── geckoterminal.py     # DEX trending/new pools
 │   ├── fourchan.py          # 4chan /biz/ sentiment (uses ensure_coins_exist)
 │   ├── reddit.py            # Reddit PRAW sentiment (uses ensure_coins_exist)
-│   ├── whale_tracker.py     # Etherscan V2 wallet tracking (>= $10K, valued only)
+│   ├── whale_tracker.py     # Etherscan V2 wallet tracking (>= $10K, valued only, checks ALL wallets every run)
 │   └── whale_alert.py       # Whale Alert API (not configured)
 │
 ├── analysis/                # Intelligence engine
-│   ├── smart_money.py       # Core: whale vs social cross-reference (excludes stablecoins + major coin thresholds)
+│   ├── smart_money.py       # Core: whale vs social cross-reference (TRACKABLE_COINS, stablecoin exclusion, major coin thresholds)
 │   ├── sentiment.py         # VADER sentiment + coin extraction
 │   ├── summary.py           # Bulk coin fetch helpers
 │   ├── divergence.py        # Signal divergence detection
@@ -291,7 +298,7 @@ CryptoDash/
 │   └── intelligence_brief.py # Natural language briefs
 │
 ├── data/
-│   └── whale_wallets.json   # 96 verified Ethereum addresses (exchanges, funds, VCs, whales)
+│   └── whale_wallets.json   # 96 verified Ethereum addresses (64 exchange, 17 fund, 7 VC, 8 whale — 30 entities)
 │
 ├── supabase/
 │   ├── config.toml
