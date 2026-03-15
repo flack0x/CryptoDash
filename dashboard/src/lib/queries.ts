@@ -15,7 +15,11 @@ async function getLatestMood(): Promise<MarketMood | null> {
 }
 
 async function getAlerts(): Promise<EnrichedAlert[]> {
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  // 4-hour window: alerts must be re-detected within recent analysis runs to stay visible.
+  // Analysis runs every ~30-60 min via GitHub Actions, so a 4h window = 4-8 confirmation runs.
+  // A signal detected once and never confirmed again disappears within 4 hours, not 24.
+  // This prevents stale/false alerts from lingering on the dashboard.
+  const since = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
   let { data } = await supabase
     .from("intelligence_alerts")
     .select("*")
@@ -24,6 +28,7 @@ async function getAlerts(): Promise<EnrichedAlert[]> {
     .limit(50);
 
   if (!data || data.length === 0) {
+    // Fallback: show most recent alerts regardless of age (better than empty section)
     const { data: fallback } = await supabase
       .from("intelligence_alerts")
       .select("*")
