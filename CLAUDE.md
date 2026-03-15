@@ -150,7 +150,7 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **Whale direction is semantic**: "buy"/"sell" not raw "in"/"out". Exchange wallets: in=sell/out=buy. Fund/VC wallets: in=buy/out=sell. See `whale_tracker.py`.
 
 ### Dashboard Data Quality Filters
-- **Intelligence Alerts**: Enriched with price data (price, 24h change, market cap) via `EnrichedAlert` type. Only shows coins in CoinGecko top 250 with proper names.
+- **Intelligence Alerts**: **4-hour window** (not 24h) — alerts must be re-detected by recent analysis runs to stay visible. Stale/false alerts disappear within 4 hours instead of lingering for a full day. Fallback shows latest alerts if none in 4h. Enriched with price data (price, 24h change, market cap) via `EnrichedAlert` type. Only shows coins in CoinGecko top 250 with proper names.
 - **Social Buzz**: Requires $50M+ market cap. NOISE_WORDS (80+), NOISE_COIN_IDS blocklist, coins table validation, and **STABLECOIN_COIN_IDS filter** (tether, usd-coin, dai, etc. excluded — stablecoin sentiment is meaningless).
 - **Whale Activity**: 48h time window, sorted by value, stablecoins only shown if >= $500K and **capped at 3 max** (exchange treasury rebalancing is noise, not trading signals). Deduped by `wallet_address + token_symbol + amount + direction` in `queries.ts`.
 - **VADER Sentiment thresholds**: Bullish > 0.08, Bearish < -0.08 (lowered from 0.2 because aggregated 4chan/reddit scores cluster near zero).
