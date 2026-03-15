@@ -4,16 +4,25 @@ import type { SocialBuzz as SocialBuzzType } from "@/lib/types";
 
 function sentimentColor(score: number): string {
   if (score > 0.08) return "text-green-400";
-  if (score < -0.08) return "text-red-400";
-  return "text-gray-400";
+  if (score > 0.03) return "text-emerald-400";
+  if (score > -0.03) return "text-gray-400";
+  if (score > -0.08) return "text-orange-400";
+  return "text-red-400";
 }
 
 function sentimentLabel(score: number): string {
   if (score > 0.25) return "Very Bullish";
   if (score > 0.08) return "Bullish";
-  if (score > -0.08) return "Neutral";
+  if (score > 0.03) return "Leaning Bullish";
+  if (score > -0.03) return "Neutral";
+  if (score > -0.08) return "Leaning Bearish";
   if (score > -0.25) return "Bearish";
   return "Very Bearish";
+}
+
+function formatScore(score: number): string {
+  const sign = score >= 0 ? "+" : "";
+  return `${sign}${score.toFixed(2)}`;
 }
 
 export default function SocialBuzz({ buzz }: { buzz: SocialBuzzType[] }) {
@@ -44,7 +53,7 @@ export default function SocialBuzz({ buzz }: { buzz: SocialBuzzType[] }) {
                   </span>
                   <div className="flex items-center gap-3">
                     <span className={`text-xs ${sentimentColor(b.avgSentiment)}`}>
-                      {sentimentLabel(b.avgSentiment)}
+                      {sentimentLabel(b.avgSentiment)} <span className="text-gray-500">({formatScore(b.avgSentiment)})</span>
                     </span>
                     <span className="text-xs text-gray-400 tabular-nums">
                       {b.totalMentions} mentions

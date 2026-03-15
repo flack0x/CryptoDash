@@ -2,7 +2,7 @@ import { supabase } from "./supabase";
 import type {
   MarketMood, IntelligenceAlert, TrendingCoin, Snapshot,
   Narrative, Coin, SocialBuzz, WhaleTransaction, DashboardData,
-  EnrichedAlert,
+  EnrichedAlert, SignalPerformance,
 } from "./types";
 
 async function getLatestMood(): Promise<MarketMood | null> {
@@ -27,15 +27,7 @@ async function getAlerts(): Promise<EnrichedAlert[]> {
     .order("confidence", { ascending: false })
     .limit(50);
 
-  if (!data || data.length === 0) {
-    // Fallback: show most recent alerts regardless of age (better than empty section)
-    const { data: fallback } = await supabase
-      .from("intelligence_alerts")
-      .select("*")
-      .order("ts", { ascending: false })
-      .limit(50);
-    data = fallback ?? [];
-  }
+  if (!data || data.length === 0) return [];
 
   // Filter out noise coins and deduplicate by coin_id (keep highest confidence)
   const seen = new Set<string>();
@@ -344,8 +336,42 @@ async function getWhaleActivity(): Promise<WhaleTransaction[]> {
   return [...nonStable, ...stableBig].slice(0, 10);
 }
 
+async function getSignalPerformance(): Promise<SignalPerformance> {
+  // Fetch all alerts that have outcome data OR are pending evaluation
+  const { data: evaluated } = await supabase
+    .from("intelligence_alerts")
+    .select("direction_correct_24h, direction_correct_48h")
+    .not("direction_correct_24h", "is", null);
+
+  const { data: evaluated48 } = await supabase
+    .from("intelligence_alerts")
+    .select("direction_correct_48h")
+    .not("direction_correct_48h", "is", null);
+
+  const { data: pending } = await supabase
+    .from("intelligence_alerts")
+    .select("id")
+    .not("price_at_detection", "is", null)
+    .is("direction_correct_24h", null);
+
+  const total24h = evaluated?.length ?? 0;
+  const correct24h = evaluated?.filter((a) => a.direction_correct_24h === true).length ?? 0;
+  const total48h = evaluated48?.length ?? 0;
+  const correct48h = evaluated48?.filter((a) => a.direction_correct_48h === true).length ?? 0;
+
+  return {
+    total24h,
+    correct24h,
+    hitRate24h: total24h > 0 ? correct24h / total24h : null,
+    total48h,
+    correct48h,
+    hitRate48h: total48h > 0 ? correct48h / total48h : null,
+    pendingEvaluation: pending?.length ?? 0,
+  };
+}
+
 export async function fetchDashboardData(): Promise<DashboardData> {
-  const [mood, alerts, trending, movers, narratives, socialBuzz, whaleActivity] = await Promise.all([
+  const [mood, alerts, trending, movers, narratives, socialBuzz, whaleActivity, signalPerformance] = await Promise.all([
     getLatestMood(),
     getAlerts(),
     getTrending(),
@@ -353,6 +379,7 @@ export async function fetchDashboardData(): Promise<DashboardData> {
     getNarratives(),
     getSocialBuzz(),
     getWhaleActivity(),
+    getSignalPerformance(),
   ]);
 
   return {
@@ -364,6 +391,7 @@ export async function fetchDashboardData(): Promise<DashboardData> {
     narratives,
     socialBuzz,
     whaleActivity,
+    signalPerformance,
     lastUpdated: new Date().toISOString(),
   };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import type { EnrichedAlert } from "@/lib/types";
+import type { EnrichedAlert, SignalPerformance } from "@/lib/types";
 import SeverityBadge from "./SeverityBadge";
 import { timeAgo, formatPrice, formatPercent, formatUSD } from "@/lib/format";
 
@@ -69,7 +69,7 @@ function buildSignalDescription(alert: EnrichedAlert): string {
   return brief.length > 100 ? brief.substring(0, 100) + "..." : brief;
 }
 
-export default function IntelligenceAlerts({ alerts }: { alerts: EnrichedAlert[] }) {
+export default function IntelligenceAlerts({ alerts, performance }: { alerts: EnrichedAlert[]; performance?: SignalPerformance }) {
   // Check if all alerts are the same type (indicates limited data)
   const uniqueTypes = new Set(alerts.map((a) => a.alert_type));
   const isMonotone = alerts.length > 0 && uniqueTypes.size === 1;
@@ -86,8 +86,37 @@ export default function IntelligenceAlerts({ alerts }: { alerts: EnrichedAlert[]
           </span>
         )}
       </div>
+      {performance && (performance.total24h > 0 || performance.pendingEvaluation > 0) && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-md bg-gray-800/40 px-3 py-2 text-xs">
+          {performance.total24h > 0 && (
+            <>
+              <span className="text-gray-400">
+                {performance.total24h} signal{performance.total24h !== 1 ? "s" : ""} evaluated
+              </span>
+              <span className={performance.hitRate24h !== null && performance.hitRate24h >= 0.55 ? "text-green-400" : performance.hitRate24h !== null && performance.hitRate24h < 0.45 ? "text-red-400" : "text-gray-300"}>
+                24h hit rate: {performance.hitRate24h !== null ? `${Math.round(performance.hitRate24h * 100)}%` : "—"}
+              </span>
+              {performance.total48h > 0 && (
+                <span className={performance.hitRate48h !== null && performance.hitRate48h >= 0.55 ? "text-green-400" : performance.hitRate48h !== null && performance.hitRate48h < 0.45 ? "text-red-400" : "text-gray-300"}>
+                  48h hit rate: {performance.hitRate48h !== null ? `${Math.round(performance.hitRate48h * 100)}%` : "—"}
+                </span>
+              )}
+            </>
+          )}
+          {performance.pendingEvaluation > 0 && performance.total24h === 0 && (
+            <span className="text-gray-500">
+              {performance.pendingEvaluation} signal{performance.pendingEvaluation !== 1 ? "s" : ""} pending evaluation
+            </span>
+          )}
+          {performance.pendingEvaluation > 0 && performance.total24h > 0 && (
+            <span className="text-gray-600">
+              +{performance.pendingEvaluation} pending
+            </span>
+          )}
+        </div>
+      )}
       {alerts.length === 0 ? (
-        <p className="text-gray-500">No intelligence alerts in the last 24h</p>
+        <p className="text-gray-500">No active signals — monitoring 105 wallets across 7 data sources</p>
       ) : (
         <div className="space-y-2">
           {alerts.map((a) => {

@@ -21,7 +21,7 @@ export default function WhaleActivity({ transactions }: { transactions: WhaleTra
       {transactions.length === 0 ? (
         <div className="text-gray-500 text-sm space-y-1">
           <p>No whale movements detected in tracked wallets.</p>
-          <p className="text-gray-600 text-xs">Monitoring 50 wallets (exchanges, VCs, funds). Data appears when large token transfers occur.</p>
+          <p className="text-gray-600 text-xs">Monitoring 105 wallets (exchanges, VCs, funds). Data appears when large token transfers occur.</p>
         </div>
       ) : (
         <div className="overflow-x-auto">

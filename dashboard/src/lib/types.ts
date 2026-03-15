@@ -87,6 +87,16 @@ export interface SocialBuzz {
   sources: string[];
 }
 
+export interface SignalPerformance {
+  total24h: number;
+  correct24h: number;
+  hitRate24h: number | null;
+  total48h: number;
+  correct48h: number;
+  hitRate48h: number | null;
+  pendingEvaluation: number;
+}
+
 export type EnrichedAlert = IntelligenceAlert & {
   coin?: Coin;
   price_usd?: number;
@@ -103,5 +113,6 @@ export interface DashboardData {
   narratives: Narrative[];
   socialBuzz: SocialBuzz[];
   whaleActivity: WhaleTransaction[];
+  signalPerformance: SignalPerformance;
   lastUpdated: string;
 }
