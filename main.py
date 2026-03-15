@@ -88,8 +88,10 @@ def main():
     db.init_db()
     logger.info("Database initialized")
 
+    # Always sync wallet list — upsert is safe (ON CONFLICT DO NOTHING on address+chain)
+    seed_wallets()
+
     if args.seed_wallets:
-        seed_wallets()
         return
 
     if args.daemon:
