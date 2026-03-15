@@ -47,6 +47,15 @@ def run_analysis():
     print_summary(summary)
 
 
+def run_outcome_checks():
+    """Check signal outcomes for alerts that have aged 24h/48h."""
+    try:
+        from analysis.outcomes import check_outcomes
+        check_outcomes()
+    except Exception as e:
+        logger.error(f"Outcome check failed: {e}", exc_info=True)
+
+
 def seed_wallets():
     """Load whale wallet seed data from data/whale_wallets.json."""
     import json
@@ -99,6 +108,7 @@ def main():
         logger.info("Starting initial collection...")
         run_all_collectors()
         run_analysis()
+        run_outcome_checks()
 
         logger.info("Starting scheduler (Ctrl+C to stop)...")
         scheduler = create_scheduler()
@@ -116,11 +126,13 @@ def main():
 
     elif args.analyze:
         run_analysis()
+        run_outcome_checks()
 
     else:
         # Default: collect + analyze once
         run_all_collectors()
         run_analysis()
+        run_outcome_checks()
 
 
 if __name__ == "__main__":

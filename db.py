@@ -164,6 +164,27 @@ def get_latest_market_caps(coin_ids: list[str]) -> dict[str, float]:
     return caps
 
 
+def get_latest_prices(coin_ids: list[str]) -> dict[str, float]:
+    """Bulk fetch latest price_usd for a list of coins. Returns {coin_id: price_usd}."""
+    if not coin_ids:
+        return {}
+    client = get_client()
+    result = (
+        client.table("snapshots")
+        .select("coin_id, price_usd")
+        .in_("coin_id", coin_ids)
+        .not_.is_("price_usd", "null")
+        .order("ts", desc=True)
+        .limit(len(coin_ids) * 2)
+        .execute()
+    )
+    prices = {}
+    for r in result.data or []:
+        if r["coin_id"] not in prices and r["price_usd"]:
+            prices[r["coin_id"]] = r["price_usd"]
+    return prices
+
+
 def get_snapshots_since(coin_id: str, since: datetime) -> list[MarketSnapshot]:
     client = get_client()
     result = (
@@ -586,6 +607,14 @@ def _row_to_whale_tx(r: dict) -> WhaleTransaction:
 
 # ── Intelligence Alerts ─────────────────────────────────────────────
 
+DIRECTION_MAP = {
+    "stealth_accumulation": "bullish",
+    "smart_money_buying_fear": "bullish",
+    "empty_hype": "bearish",
+    "smart_money_exit_hype": "bearish",
+}
+
+
 def insert_intelligence_alerts(alerts: list[IntelligenceAlert]):
     if not alerts:
         return
@@ -606,6 +635,8 @@ def insert_intelligence_alerts(alerts: list[IntelligenceAlert]):
             "whale_entities": a.whale_entities,
             "confidence": a.confidence,
             "raw_data": json.loads(a.raw_data) if isinstance(a.raw_data, str) else a.raw_data,
+            "price_at_detection": a.price_at_detection,
+            "predicted_direction": DIRECTION_MAP.get(a.alert_type),
         }
         for a in alerts
     ]
@@ -624,3 +655,48 @@ def get_intelligence_alerts_for_coin(coin_id: str, alert_type: str, since: datet
         .execute()
     )
     return result.data
+
+
+# ── Signal Outcome Tracking ───────────────────────────────────────────
+
+def get_pending_outcome_checks(checkpoint: str, cutoff: datetime) -> list[dict]:
+    """Get alerts needing outcome checks.
+
+    checkpoint: "24h" or "48h"
+    cutoff: alerts must be older than this to be eligible
+    """
+    client = get_client()
+    query = (
+        client.table("intelligence_alerts")
+        .select("id, coin_id, alert_type, confidence, severity, "
+                "price_at_detection, predicted_direction, ts")
+        .not_.is_("price_at_detection", "null")
+        .lte("ts", cutoff.isoformat())
+        .limit(200)
+    )
+    if checkpoint == "24h":
+        query = query.is_("checked_24h_at", "null")
+    elif checkpoint == "48h":
+        query = query.not_.is_("checked_24h_at", "null").is_("checked_48h_at", "null")
+    return query.order("ts").execute().data or []
+
+
+def update_alert_outcome(alert_id: int, updates: dict):
+    """Update an intelligence alert with outcome data."""
+    client = get_client()
+    client.table("intelligence_alerts").update(updates).eq("id", alert_id).execute()
+
+
+def get_outcome_stats() -> list[dict]:
+    """Fetch all evaluated outcomes for hit rate calculation."""
+    client = get_client()
+    result = (
+        client.table("intelligence_alerts")
+        .select("alert_type, confidence, severity, predicted_direction, "
+                "change_pct_24h, change_pct_48h, direction_correct_24h, direction_correct_48h")
+        .not_.is_("checked_24h_at", "null")
+        .order("ts", desc=True)
+        .limit(1000)
+        .execute()
+    )
+    return result.data or []

@@ -82,6 +82,15 @@ def detect_smart_money_signals(window_hours: int = None) -> list[IntelligenceAle
         alerts.extend(coin_alerts)
 
     alerts.sort(key=lambda a: a.confidence, reverse=True)
+
+    # Enrich alerts with price_at_detection (bulk fetch, no N+1)
+    alert_coin_ids = list({a.coin_id for a in alerts if a.coin_id})
+    if alert_coin_ids:
+        prices = db.get_latest_prices(alert_coin_ids)
+        for alert in alerts:
+            if alert.coin_id and alert.coin_id in prices:
+                alert.price_at_detection = prices[alert.coin_id]
+
     logger.info(f"Smart money analysis found {len(alerts)} signals")
     return alerts
 

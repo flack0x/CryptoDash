@@ -58,6 +58,9 @@ def print_summary(summary: CryptoSummary):
     if summary.top_gainers or summary.top_losers:
         _print_movers(summary)
 
+    # ── Signal Hit Rate ──
+    _print_hit_rate()
+
     console.print()
 
 
@@ -270,6 +273,48 @@ def _print_movers(summary: CryptoSummary):
         console.print(table)
 
     console.print()
+
+
+def _print_hit_rate():
+    """Print signal performance stats if any outcomes have been evaluated."""
+    try:
+        from analysis.outcomes import compute_hit_rates
+        rates = compute_hit_rates()
+
+        overall = rates.get("overall_24h", {})
+        total = overall.get("total", 0)
+        if total == 0:
+            return
+
+        table = Table(
+            title="Signal Performance (Hit Rate)",
+            border_style="bold blue",
+            show_lines=True,
+        )
+        table.add_column("Signal Type", width=28)
+        table.add_column("24h Rate", width=12, justify="center")
+        table.add_column("48h Rate", width=12, justify="center")
+        table.add_column("Signals", width=8, justify="center")
+
+        overall_48 = rates.get("overall_48h", {})
+        rate_24 = f"{overall.get('rate', 0):.0%}" if total > 0 else "---"
+        rate_48 = f"{overall_48.get('rate', 0):.0%}" if overall_48.get("total", 0) > 0 else "---"
+        table.add_row("[bold]OVERALL[/bold]", rate_24, rate_48, str(total))
+
+        by_type_24 = rates.get("by_type_24h", {})
+        by_type_48 = rates.get("by_type_48h", {})
+        for at in ["stealth_accumulation", "smart_money_buying_fear", "empty_hype", "smart_money_exit_hype"]:
+            t24 = by_type_24.get(at, {})
+            t48 = by_type_48.get(at, {})
+            r24 = f"{t24['rate']:.0%}" if t24.get("total", 0) > 0 else "---"
+            r48 = f"{t48['rate']:.0%}" if t48.get("total", 0) > 0 else "---"
+            count = t24.get("total", 0)
+            table.add_row(at.replace("_", " ").title(), r24, r48, str(count))
+
+        console.print(table)
+        console.print()
+    except Exception:
+        pass
 
 
 def _format_number(n: float) -> str:

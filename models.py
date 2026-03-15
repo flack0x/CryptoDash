@@ -155,3 +155,4 @@ class IntelligenceAlert:
     whale_entities: Optional[list] = None
     confidence: float = 0.0
     raw_data: Optional[str] = None
+    price_at_detection: Optional[float] = None
