@@ -256,6 +256,20 @@ curl -s "https://dashboard-six-rouge-13.vercel.app" -o /dev/null -w "HTTP status
 
 This is a **personal trading tool** — the goal is to generate actionable signals you can bet real money on. Every data quality improvement and filter exists to eliminate noise so the remaining signals are trustworthy. Intelligence alerts show price context (current price, 24h change, market cap) so you can evaluate whether to act immediately.
 
+## Persistent Memory System
+
+Operational state persists across conversations in `~/.claude/projects/.../memory/`:
+
+| File | Purpose | Update When |
+|------|---------|-------------|
+| `MEMORY.md` | Master index + critical rules | Rarely (it's the stable reference) |
+| `STATUS.md` | Infrastructure health, data volumes, signal state | Every health check |
+| `SIGNALS.md` | Signal tracking, prices, hit rate | Every valid signal generated |
+| `CHANGELOG.md` | What changed and when (newest first) | Every code change |
+| `ROADMAP.md` | Priorities, what to build next | When priorities shift |
+
+**Every new conversation MUST**: Read `STATUS.md` and `SIGNALS.md` first. If making changes, update `CHANGELOG.md`. If running health check, update `STATUS.md`. If a signal fires, log it in `SIGNALS.md` with the coin's price at detection time.
+
 ## File Structure
 
 ```
