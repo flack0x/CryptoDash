@@ -142,7 +142,7 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **Stablecoins excluded**: USDT, USDC, DAI, etc. never generate alerts (stablecoin movements aren't position signals)
 - **Major coins (BTC, ETH, SOL, etc.)** need 5x higher social mention threshold to trigger empty hype (they always have high mentions)
 - **Empty hype confidence**: base cap 0.70 (absence of buying), boosted to max 0.80 when whales are **actively selling** (`sell_usd > buy_usd`). Weakest signal type overall but the sell-boost variant is stronger.
-- **Social visibility gate**: stealth accumulation confidence is scaled by `min(1.0, avg_mentions / 10)`. Coins with 0 social baseline get 0 confidence (no alert). Coins with 5 avg mentions get 50% of normal confidence. This prevents "we're blind to social" from being misinterpreted as "the crowd hasn't noticed." **Without social data, there is no divergence to measure.**
+- **Social visibility gate**: stealth accumulation confidence is scaled by `min(1.0, avg_mentions / 3)`. Coins with 0 social baseline get 0 confidence (no alert). Coins with 1 avg mention get 33% confidence. Full confidence at avg_mentions >= 3. Lowered from /10 to /3 on 2026-03-15 to accelerate signal generation — performance tracker auto-evaluates whether this produces good signals. **Without social data, there is no divergence to measure.**
 - **Market-cap-relative whale threshold**: `min_usd = max(WHALE_MIN_USD, market_cap * 0.001)`. A $1.2M move on SHIB ($3.4B mcap = 0.035%) is noise. A $1.2M move on a $50M coin (2.4%) is a real signal. Uses bulk `db.get_latest_market_caps()` to avoid N+1 queries.
 - **Severity thresholds**: critical >= 0.75, high >= 0.50, medium >= 0.25, low < 0.25
 - **Minimum confidence 0.15** to generate any alert

@@ -180,7 +180,7 @@ def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0) 
     # Social visibility: how confident are we that our social data reflects reality?
     # avg_mentions >= 10 = full visibility, 0 = blind. Scale linearly.
     # Without social visibility, we can't claim "the crowd hasn't noticed" — we just can't see.
-    social_visibility = min(1.0, avg_mentions / 10)
+    social_visibility = min(1.0, avg_mentions / 3)
 
     # Major coins need much higher thresholds — BTC/ETH always have high social mentions
     hype_ratio = config.HYPE_MENTION_RATIO * (5 if is_major else 1)
