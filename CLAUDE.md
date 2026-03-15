@@ -65,7 +65,7 @@ git add -A && git commit -m "message" && git push
 - Public repo = unlimited free GitHub Actions minutes
 - All secrets stored as GitHub repository secrets (SUPABASE_URL, SUPABASE_SERVICE_KEY, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, ETHERSCAN_API_KEY)
 - Manual trigger: `gh workflow run collect.yml` or from GitHub UI
-- Each run: installs deps (pip cached), runs all collectors + analysis (~3 min)
+- Each run: installs deps (pip cached), runs all collectors + analysis + outcome checks (~3 min)
 - **Confirmed working as of 2026-03-15** (latest health-check 2026-03-15 ~09:00 UTC): all runs successful since launch (~40 hours), all collectors + analysis producing data. DB stats: 606 coins, 14,500 snapshots, 10,039 social signals, 3,302 whale txs, 105 tracked wallets (~172 whale txs/run), 2,380 trending, 8,660 on-chain. Index/table hit rate: 1.00. No errors. TRACKABLE_COINS filter active (correctly suppresses false empty hype for non-ERC-20 tokens).
 
 ### Local Daemon Mode (backup — only if needed)
@@ -122,7 +122,7 @@ Same env vars are set in Vercel project settings for production builds.
 | `narratives` | Narrative themes + momentum scores |
 | `tracked_wallets` | 105 whale wallet addresses being monitored (96 from JSON + 9 pre-existing) |
 | `whale_transactions` | Detected whale token movements (>= $10K, valued only) |
-| `intelligence_alerts` | Smart money signals (the core output) |
+| `intelligence_alerts` | Smart money signals + outcome tracking (price_at_detection, 24h/48h prices, direction_correct) |
 | `dev_activity` | GitHub dev activity (unused, 0 rows) |
 
 Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT policies for dashboard access.
@@ -148,6 +148,14 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **Minimum confidence 0.15** to generate any alert
 - **Analysis re-runs every 30 min** in daemon mode (scheduled job in `scheduler.py`)
 - **Whale direction is semantic**: "buy"/"sell" not raw "in"/"out". Exchange wallets: in=sell/out=buy. Fund/VC wallets: in=buy/out=sell. See `whale_tracker.py`.
+
+### Signal Performance Tracking
+- **Automated outcome evaluation**: Each alert records `price_at_detection` (bulk-fetched via `db.get_latest_prices()`) and `predicted_direction` (bullish for stealth_accumulation/buying_fear, bearish for empty_hype/exit_hype)
+- **Outcome checker** (`analysis/outcomes.py`): Runs every `python main.py` execution. Finds alerts >24h/48h old, looks up closest price snapshot (±2h window, widens to ±6h if overdue), evaluates if price moved in predicted direction beyond ±0.5% neutral band
+- **Hit rate computation**: `compute_hit_rates()` returns overall and per-type rates at 24h and 48h windows
+- **CLI display**: Hit rate table appears in terminal output when evaluated outcomes exist
+- **Direction semantics**: stealth_accumulation/buying_fear = bullish (price should go UP), empty_hype/exit_hype = bearish (price should go DOWN)
+- **DB columns on `intelligence_alerts`**: price_at_detection, predicted_direction, price_24h, price_48h, change_pct_24h, change_pct_48h, direction_correct_24h, direction_correct_48h, checked_24h_at, checked_48h_at
 
 ### Dashboard Data Quality Filters
 - **Intelligence Alerts**: **4-hour window** (not 24h) — alerts must be re-detected by recent analysis runs to stay visible. Stale/false alerts disappear within 4 hours instead of lingering for a full day. Fallback shows latest alerts if none in 4h. Enriched with price data (price, 24h change, market cap) via `EnrichedAlert` type. Only shows coins in CoinGecko top 250 with proper names.
@@ -301,6 +309,7 @@ CryptoDash/
 │
 ├── analysis/                # Intelligence engine
 │   ├── smart_money.py       # Core: whale vs social cross-reference (TRACKABLE_COINS, stablecoin exclusion, major coin thresholds)
+│   ├── outcomes.py          # Signal performance tracking: 24h/48h price checks, hit rate computation
 │   ├── sentiment.py         # VADER sentiment + coin extraction
 │   ├── summary.py           # Bulk coin fetch helpers
 │   ├── divergence.py        # Signal divergence detection
