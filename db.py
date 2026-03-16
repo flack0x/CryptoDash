@@ -590,7 +590,18 @@ def insert_whale_transactions(transactions: list[WhaleTransaction]):
         for t in new_txs
     ]
     for i in range(0, len(rows), 500):
-        client.table("whale_transactions").insert(rows[i:i+500]).execute()
+        try:
+            client.table("whale_transactions").insert(rows[i:i+500]).execute()
+        except Exception as e:
+            if "23505" in str(e):
+                # Unique constraint caught a duplicate — insert one-by-one, skip conflicts
+                for row in rows[i:i+500]:
+                    try:
+                        client.table("whale_transactions").insert([row]).execute()
+                    except Exception:
+                        pass  # Duplicate, skip
+            else:
+                raise
 
 
 def get_whale_transactions_since(since: datetime) -> list[WhaleTransaction]:
