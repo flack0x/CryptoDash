@@ -312,7 +312,7 @@ async function getWhaleActivity(): Promise<WhaleTransaction[]> {
     .select("id, wallet_address, coin_id, token_symbol, amount, amount_usd, direction, label, entity_type, ts")
     .gte("ts", since)
     .order("amount_usd", { ascending: false })
-    .limit(100);
+    .limit(500);
   if (!data || data.length === 0) return [];
 
   // Deduplicate by wallet+token+amount+direction (same tx collected twice)
@@ -340,24 +340,36 @@ async function getSignalPerformance(): Promise<SignalPerformance> {
   // Fetch all alerts that have outcome data OR are pending evaluation
   const { data: evaluated } = await supabase
     .from("intelligence_alerts")
-    .select("direction_correct_24h, direction_correct_48h")
+    .select("coin_id, alert_type, direction_correct_24h, direction_correct_48h")
     .not("direction_correct_24h", "is", null);
-
-  const { data: evaluated48 } = await supabase
-    .from("intelligence_alerts")
-    .select("direction_correct_48h")
-    .not("direction_correct_48h", "is", null);
 
   const { data: pending } = await supabase
     .from("intelligence_alerts")
-    .select("id")
+    .select("coin_id, alert_type")
     .not("price_at_detection", "is", null)
     .is("direction_correct_24h", null);
 
-  const total24h = evaluated?.length ?? 0;
-  const correct24h = evaluated?.filter((a) => a.direction_correct_24h === true).length ?? 0;
-  const total48h = evaluated48?.length ?? 0;
-  const correct48h = evaluated48?.filter((a) => a.direction_correct_48h === true).length ?? 0;
+  // Deduplicate: same coin+type = same signal (re-detected across runs)
+  const evalMap24 = new Map<string, boolean>();
+  const evalMap48 = new Map<string, boolean>();
+  for (const a of evaluated ?? []) {
+    const key = `${a.coin_id}:${a.alert_type}`;
+    // Keep first evaluation (most confident — they're ordered by confidence)
+    if (!evalMap24.has(key)) evalMap24.set(key, a.direction_correct_24h === true);
+    if (a.direction_correct_48h != null && !evalMap48.has(key)) {
+      evalMap48.set(key, a.direction_correct_48h === true);
+    }
+  }
+
+  const pendingKeys = new Set<string>();
+  for (const a of pending ?? []) {
+    pendingKeys.add(`${a.coin_id}:${a.alert_type}`);
+  }
+
+  const total24h = evalMap24.size;
+  const correct24h = [...evalMap24.values()].filter(Boolean).length;
+  const total48h = evalMap48.size;
+  const correct48h = [...evalMap48.values()].filter(Boolean).length;
 
   return {
     total24h,
@@ -366,7 +378,7 @@ async function getSignalPerformance(): Promise<SignalPerformance> {
     total48h,
     correct48h,
     hitRate48h: total48h > 0 ? correct48h / total48h : null,
-    pendingEvaluation: pending?.length ?? 0,
+    pendingEvaluation: pendingKeys.size,
   };
 }
 

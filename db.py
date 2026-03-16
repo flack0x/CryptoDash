@@ -547,6 +547,27 @@ def insert_whale_transactions(transactions: list[WhaleTransaction]):
     if not transactions:
         return
     client = get_client()
+
+    # Deduplicate: skip transactions we already have (same tx_hash + wallet_address)
+    tx_hashes = [t.tx_hash for t in transactions if t.tx_hash]
+    existing_keys: set[tuple[str, str]] = set()
+    if tx_hashes:
+        # Batch query — Supabase IN filter
+        for i in range(0, len(tx_hashes), 100):
+            batch = tx_hashes[i:i+100]
+            existing = (
+                client.table("whale_transactions")
+                .select("tx_hash, wallet_address")
+                .in_("tx_hash", batch)
+                .execute()
+            )
+            for r in (existing.data or []):
+                existing_keys.add((r["tx_hash"], r["wallet_address"]))
+
+    new_txs = [t for t in transactions if (t.tx_hash, t.wallet_address) not in existing_keys]
+    if not new_txs:
+        return
+
     rows = [
         {
             "wallet_address": t.wallet_address,
@@ -566,7 +587,7 @@ def insert_whale_transactions(transactions: list[WhaleTransaction]):
             "source": t.source,
             "ts": t.timestamp.isoformat() if t.timestamp else None,
         }
-        for t in transactions
+        for t in new_txs
     ]
     for i in range(0, len(rows), 500):
         client.table("whale_transactions").insert(rows[i:i+500]).execute()

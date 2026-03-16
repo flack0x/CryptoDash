@@ -83,6 +83,17 @@ def detect_smart_money_signals(window_hours: int = None) -> list[IntelligenceAle
 
     alerts.sort(key=lambda a: a.confidence, reverse=True)
 
+    # Deduplicate against existing alerts — don't re-insert same coin+type within 4h
+    if alerts:
+        dedup_window = now - timedelta(hours=4)
+        existing_alerts = {}
+        for a in alerts:
+            if a.coin_id:
+                recent = db.get_intelligence_alerts_for_coin(a.coin_id, a.alert_type, dedup_window)
+                if recent:
+                    existing_alerts[(a.coin_id, a.alert_type)] = True
+        alerts = [a for a in alerts if (a.coin_id, a.alert_type) not in existing_alerts]
+
     # Enrich alerts with price_at_detection (bulk fetch, no N+1)
     alert_coin_ids = list({a.coin_id for a in alerts if a.coin_id})
     if alert_coin_ids:
@@ -129,6 +140,21 @@ def _aggregate_whale_activity(now, window) -> dict:
     """Aggregate whale transactions per coin: net flow, buy/sell USD, which entities."""
     transactions = db.get_whale_transactions_since(now - window)
 
+    # Deduplicate by tx_hash + wallet_address (same blockchain tx collected on multiple runs)
+    seen_txs: set[tuple] = set()
+    unique_txs = []
+    for tx in transactions:
+        if tx.tx_hash:
+            key = (tx.tx_hash, tx.wallet_address)
+        else:
+            # Fallback for old data without tx_hash
+            key = (tx.wallet_address, tx.token_symbol, tx.amount, tx.direction, str(tx.timestamp))
+        if key in seen_txs:
+            continue
+        seen_txs.add(key)
+        unique_txs.append(tx)
+    transactions = unique_txs
+
     result = defaultdict(lambda: {
         "net_usd": 0, "buy_usd": 0, "sell_usd": 0, "tx_count": 0, "entities": [],
     })
@@ -171,8 +197,18 @@ def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0) 
     sell_usd = whale["sell_usd"]
     entities = whale["entities"]
 
-    # Market-cap-relative whale threshold
-    min_usd = max(config.WHALE_MIN_USD, market_cap * config.MCAP_WHALE_MULTIPLIER) if market_cap > 0 else config.WHALE_MIN_USD
+    # Market-cap-relative whale threshold — tiered so mega-caps need bigger moves
+    if market_cap >= 5_000_000_000:       # >$5B: need 0.03% of mcap
+        min_usd = max(config.WHALE_MIN_USD, market_cap * 0.0003)
+    elif market_cap >= 500_000_000:       # >$500M: need 0.01% of mcap
+        min_usd = max(config.WHALE_MIN_USD, market_cap * 0.0001)
+    else:                                  # <$500M: use config default
+        min_usd = max(config.WHALE_MIN_USD, market_cap * config.MCAP_WHALE_MULTIPLIER) if market_cap > 0 else config.WHALE_MIN_USD
+
+    # Confidence denominators scale with market cap — $300K on a $3.6B coin is noise,
+    # $300K on a $50M coin is a real signal. Scale proportionally.
+    stealth_denom = max(config.STEALTH_CONFIDENCE_DENOM, market_cap * 0.001) if market_cap > 0 else config.STEALTH_CONFIDENCE_DENOM
+    exit_fear_denom = max(config.EXIT_FEAR_CONFIDENCE_DENOM, market_cap * 0.001) if market_cap > 0 else config.EXIT_FEAR_CONFIDENCE_DENOM
 
     mention_ratio = mentions / avg_mentions if avg_mentions > 0 else 0
 
@@ -189,7 +225,7 @@ def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0) 
     # Whale buying significant, social mentions below average
     # REQUIRES social visibility — "0 mentions with avg 0" is blindness, not stealth.
     if net_whale > min_usd and mention_ratio < config.STEALTH_MENTION_RATIO:
-        confidence = min(0.95, (net_whale / config.STEALTH_CONFIDENCE_DENOM) * (1 - mention_ratio))
+        confidence = min(0.95, (net_whale / stealth_denom) * (1 - mention_ratio))
         # Scale by social visibility: no social data = no stealth signal
         confidence *= social_visibility
         if confidence >= 0.15:
@@ -237,7 +273,7 @@ def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0) 
     # === SMART MONEY BUYING FEAR ===
     # Negative sentiment but whales accumulating
     if sentiment < config.BUYING_FEAR_SENTIMENT and net_whale > min_usd:
-        confidence = min(0.95, abs(sentiment) * (net_whale / config.EXIT_FEAR_CONFIDENCE_DENOM))
+        confidence = min(0.95, abs(sentiment) * (net_whale / exit_fear_denom))
         if confidence >= 0.15:
             alerts.append(IntelligenceAlert(
                 timestamp=now,
@@ -257,7 +293,7 @@ def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0) 
     # === SMART MONEY EXIT HYPE ===
     # Positive sentiment but whales dumping
     if sentiment > config.EXIT_HYPE_SENTIMENT and net_whale < -min_usd:
-        confidence = min(0.95, sentiment * (abs(net_whale) / config.EXIT_FEAR_CONFIDENCE_DENOM))
+        confidence = min(0.95, sentiment * (abs(net_whale) / exit_fear_denom))
         if confidence >= 0.15:
             alerts.append(IntelligenceAlert(
                 timestamp=now,
