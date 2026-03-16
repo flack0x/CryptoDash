@@ -191,7 +191,7 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - DEX pool addresses (`dex:` prefix) filtered from trending and social queries
 - Social Buzz and Intelligence Alerts require coins to have price snapshots (i.e., in CoinGecko top 250) — eliminates obscure noise coins
 - System fonts (no Google Fonts) to avoid build failures on Vercel
-- ISR with `revalidate = 300` (5 min) on server + client-side setInterval refresh
+- `force-dynamic` on server (every page load queries Supabase fresh, NO ISR cache) + client-side setInterval refresh every 5 min for live updates while tab is open. **Do NOT switch back to ISR** — single-user dashboard needs fresh data on every load, not cached pages.
 - Etherscan **V2 API** (`api.etherscan.io/v2/api` with `chainid=1`) — V1 is deprecated
 
 ## Bugs Fixed (important to not reintroduce)
@@ -217,6 +217,11 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **Stealth accumulation false confidence from zero social baseline**: Coins with NO social data (avg_mentions=0) automatically got 95% CRITICAL stealth accumulation alerts. "No mentions" meant "we're blind" not "the crowd hasn't noticed." Fixed: confidence now scaled by `social_visibility = min(1.0, avg_mentions / 10)`. Zero social baseline = zero confidence. **Stealth accumulation requires proven social visibility to be meaningful.**
 - **Whale alerts on dust-relative-to-mcap**: $1.2M SHIB move (0.035% of $3.4B mcap) triggered Smart $ Exiting alert. Fixed: `min_usd = max(WHALE_MIN_USD, market_cap * 0.001)` — whale move must be at least 0.1% of market cap. Uses bulk `db.get_latest_market_caps()` to avoid N+1 queries.
 - **Whale Activity section drowned by stablecoins**: 8/10 entries were USDT/USDC exchange treasury operations (rebalancing, market making). Fixed: stablecoins capped at 3 max entries in `queries.ts`. Non-stablecoin token trades always shown first.
+- **Stale alerts from ISR cache**: Dashboard used ISR (`revalidate = 300`) which cached rendered pages. If nobody visited for hours, the next visit showed stale data (16h-old alerts). Fixed: switched to `force-dynamic` — every page load queries Supabase fresh server-side. **Never switch back to ISR for a single-user dashboard.**
+- **Stale alert fallback showed garbage**: When no alerts existed in the 4h window, a fallback queried the latest alerts regardless of age, surfacing days-old false positives. Fixed: removed the fallback entirely. Empty 4h window = clean empty state message. **Never add a fallback that bypasses the time window.**
+- **Whale transaction duplicates (9x inflation)**: Same blockchain tx stored on every collection run (no dedup). $501M Binance USDT stored 9 times, ONDO $700K stored 9 times. Analysis engine counted duplicates → inflated whale volumes → false signals (SHIB 44% confidence from $300K noise). Fixed: (1) unique index `(tx_hash, wallet_address)` on whale_transactions, (2) Python dedup before insert + graceful fallback on conflict, (3) analysis engine deduplicates by tx_hash when aggregating. **Whale inserts MUST check for existing tx_hash. The unique index is the safety net.**
+- **Noise signals on mega-cap coins**: $300K whale move on $3.6B SHIB (0.008% of mcap) generated 44% confidence exit_hype. Fixed: (1) tiered mcap thresholds: >$5B needs 0.03% mcap, >$500M needs 0.01%, (2) confidence denominator scales to `max(config_denom, mcap * 0.001)`. **Confidence must be proportional to whale move significance relative to market cap.**
+- **Duplicate intelligence alerts**: Same coin+type re-generated every analysis run (SHIB exit_hype x5 = "13 signals pending" instead of 4). Fixed: analysis engine skips inserting if same coin_id+alert_type exists within 4h. Dashboard signal performance deduplicates by coin+type. **Never count repeated detections of the same divergence as separate signals.**
 
 ## Health Check Commands
 
@@ -338,7 +343,7 @@ CryptoDash/
     └── src/
         ├── app/
         │   ├── layout.tsx    # Dark theme, system fonts
-        │   ├── page.tsx      # Server component, ISR 5 min
+        │   ├── page.tsx      # Server component, force-dynamic (always fresh)
         │   └── globals.css   # Dark theme CSS
         ├── components/       # 10 React components (see table above)
         └── lib/
