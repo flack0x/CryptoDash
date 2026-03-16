@@ -62,11 +62,13 @@ git add -A && git commit -m "message" && git push
 ### GitHub Actions (Primary — runs 24/7 for free)
 - `.github/workflows/collect.yml` runs every 15 min on cron
 - **Actual interval is ~30-60 min** — GitHub throttles cron on public repos, doesn't guarantee exact timing. This is normal and sufficient.
+- **timeout-minutes is 14** — runs take 9-11 min (collectors ~9 min, analysis ~1 min, outcome checks ~30s). **Do NOT reduce below 12** or the outcome checker gets killed. Was 10 previously, which caused ~60% of runs to be cancelled and the outcome checker to NEVER run.
+- **Concurrency group**: `cancel-in-progress: true` — if a new cron run starts while the previous is still going, it cancels the stale one. Prevents overlap.
 - Public repo = unlimited free GitHub Actions minutes
 - All secrets stored as GitHub repository secrets (SUPABASE_URL, SUPABASE_SERVICE_KEY, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, ETHERSCAN_API_KEY)
 - Manual trigger: `gh workflow run collect.yml` or from GitHub UI
-- Each run: installs deps (pip cached), runs all collectors + analysis + outcome checks (~3 min)
-- **Confirmed working as of 2026-03-15** (latest health-check 2026-03-15 ~09:00 UTC): all runs successful since launch (~40 hours), all collectors + analysis producing data. DB stats: 606 coins, 14,500 snapshots, 10,039 social signals, 3,302 whale txs, 105 tracked wallets (~172 whale txs/run), 2,380 trending, 8,660 on-chain. Index/table hit rate: 1.00. No errors. TRACKABLE_COINS filter active (correctly suppresses false empty hype for non-ERC-20 tokens).
+- Each run: installs deps (pip cached), runs all collectors + analysis + outcome checks (~10-11 min total)
+- **Confirmed working as of 2026-03-16** (health-check ~19:35 UTC): Timeout fix deployed (10→14 min). First successful run at 10m58s — outcome checker ran for first time, evaluated 3 LINK alerts. DB stats: 818 coins, 27,500 snapshots, 23,094 social signals, 1,746 whale txs (deduped), 239 alerts, 105 wallets, 3,850 trending, 25,744 on-chain. Market mood: 23 (Extreme Fear).
 
 ### Local Daemon Mode (backup — only if needed)
 - `python main.py --daemon` or `start_collector.bat` / `stop_collector.bat`
@@ -196,6 +198,7 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 
 ## Bugs Fixed (important to not reintroduce)
 
+- **GitHub Actions timeout killed outcome checker**: `timeout-minutes: 10` was too tight — runs take 9-11 min. ~60% of runs got cancelled at exactly 10 min, killing the outcome checker (which runs LAST, after collectors + analysis). Result: 239 alerts, 0 evaluations — the entire signal performance system was dead. Fixed: `timeout-minutes: 14` + `concurrency: { group: collect, cancel-in-progress: true }`. **Never reduce timeout below 12 minutes.**
 - **Coin name corruption**: 4chan/reddit collectors used to upsert `Coin(id=x, name=x, symbol=x)` overwriting CoinGecko's proper names. Fixed with `db.ensure_coins_exist()` using ON CONFLICT DO NOTHING. **Never use `db.upsert_coins()` from social collectors.**
 - **Etherscan V1 deprecated**: Whale tracker now uses V2 API at `api.etherscan.io/v2/api` with `chainid=1` parameter.
 - **Reddit set serialization (TWO bugs, both fixed)**: (1) `_collect_subreddit()` was converting sets to lists after first subreddit, causing `.add()` to fail — moved set-to-list conversion to `collect()`. (2) The set-to-list conversion was placed AFTER `json.dumps()` which needs it — moved conversion BEFORE the signal-building loop. **Both must stay fixed — the conversion must happen before `json.dumps` in `collect()`.**
