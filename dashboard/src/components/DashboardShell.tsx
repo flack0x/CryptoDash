@@ -31,8 +31,6 @@ export default function DashboardShell({ initial }: { initial: DashboardData }) 
   }, []);
 
   useEffect(() => {
-    // Refresh immediately on mount to replace potentially stale ISR cache
-    refresh();
     const id = setInterval(refresh, REFRESH_INTERVAL);
     return () => clearInterval(id);
   }, [refresh]);
