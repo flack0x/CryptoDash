@@ -160,7 +160,7 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **DB columns on `intelligence_alerts`**: price_at_detection, predicted_direction, price_24h, price_48h, change_pct_24h, change_pct_48h, direction_correct_24h, direction_correct_48h, checked_24h_at, checked_48h_at
 
 ### Dashboard Data Quality Filters
-- **Intelligence Alerts**: **4-hour window** (not 24h) — alerts must be re-detected by recent analysis runs to stay visible. Stale/false alerts disappear within 4 hours instead of lingering for a full day. Fallback shows latest alerts if none in 4h. Enriched with price data (price, 24h change, market cap) via `EnrichedAlert` type. Only shows coins in CoinGecko top 250 with proper names.
+- **Intelligence Alerts**: **4-hour window** (not 24h) — alerts must be re-detected by recent analysis runs to stay visible. Stale/false alerts disappear within 4 hours instead of lingering for a full day. NO fallback to old alerts. Enriched with price data (price, 24h change, market cap) via `EnrichedAlert` type. Only shows coins in CoinGecko top 250 with proper names. **Expandable cards** show full brief, whale entity breakdown (per-entity net USD), social context, predicted direction.
 - **Social Buzz**: Requires $50M+ market cap. NOISE_WORDS (80+), NOISE_COIN_IDS blocklist, coins table validation, and **STABLECOIN_COIN_IDS filter** (tether, usd-coin, dai, etc. excluded — stablecoin sentiment is meaningless).
 - **Whale Activity**: 48h time window, sorted by value, stablecoins only shown if >= $500K and **capped at 3 max** (exchange treasury rebalancing is noise, not trading signals). Deduped by `wallet_address + token_symbol + amount + direction` in `queries.ts`.
 - **VADER Sentiment thresholds**: Bullish > 0.08, Bearish < -0.08 (lowered from 0.2 because aggregated 4chan/reddit scores cluster near zero).
@@ -170,16 +170,20 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 
 | Component | Section |
 |-----------|---------|
-| `DashboardShell.tsx` | Client wrapper, holds state, auto-refresh every 5 min |
+| `DashboardShell.tsx` | Client wrapper, holds state, auto-refresh every 5 min, section layout |
 | `MarketMood.tsx` | Fear & Greed gauge (0-100) |
-| `IntelligenceAlerts.tsx` | Smart money signals — card layout with price context, max 6, coin-validated |
+| `IntelligenceAlerts.tsx` | Smart money signals — expandable cards with brief, whale entities, social context, predicted direction |
+| `SignalTrackRecord.tsx` | Hit rate summary cards (24h/48h) + expandable evaluated outcomes table |
 | `TopMovers.tsx` | Gainers/Losers side-by-side cards |
-| `SocialBuzz.tsx` | Social mention counts + sentiment (top 250 coins only) |
-| `WhaleActivity.tsx` | Whale transaction feed (real on-chain data) |
+| `SocialBuzz.tsx` | Social mention counts + sentiment + per-source breakdown when 2+ sources |
+| `WhaleActivity.tsx` | Net Flow (default) / Transactions toggle. Net Flow: per-token buy/sell bars with entity drill-down. Transactions: table with Etherscan links |
+| `SystemHealth.tsx` | Pipeline status dot in header (green/yellow/red) + expandable per-source freshness dropdown |
 | `TrendingCoins.tsx` | Trending coins across sources |
 | `NarrativeMomentum.tsx` | Narrative momentum bars |
 | `RefreshIndicator.tsx` | "Last updated X min ago" |
 | `SeverityBadge.tsx` | Reusable severity color badge |
+
+**Section order**: Market Mood → Intelligence Alerts → Signal Track Record → Top Movers → Social Buzz + Whale Activity (side-by-side) → Trending → Narratives
 
 ## Key Technical Decisions
 
