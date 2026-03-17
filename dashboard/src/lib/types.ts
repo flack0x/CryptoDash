@@ -5,6 +5,11 @@ export interface MarketMood {
   label: string;
 }
 
+export interface WhaleEntity {
+  label: string;
+  net_usd: number;
+}
+
 export interface IntelligenceAlert {
   id: number;
   ts: string;
@@ -18,8 +23,10 @@ export interface IntelligenceAlert {
   social_avg_mentions: number | null;
   whale_volume_usd: number | null;
   whale_direction: string | null;
-  whale_entities: string[] | null;
+  whale_entities: WhaleEntity[] | null;
   confidence: number | null;
+  predicted_direction: string | null;
+  price_at_detection: number | null;
 }
 
 export interface Snapshot {
@@ -77,6 +84,13 @@ export interface WhaleTransaction {
   label: string;
   entity_type: string;
   ts: string;
+  tx_hash: string | null;
+}
+
+export interface SourceSentiment {
+  source: string;
+  mentions: number;
+  sentiment: number;
 }
 
 export interface SocialBuzz {
@@ -85,6 +99,7 @@ export interface SocialBuzz {
   totalMentions: number;
   avgSentiment: number;
   sources: string[];
+  perSource: SourceSentiment[];
 }
 
 export interface SignalPerformance {
@@ -95,6 +110,51 @@ export interface SignalPerformance {
   correct48h: number;
   hitRate48h: number | null;
   pendingEvaluation: number;
+}
+
+export interface EvaluatedSignal {
+  coin_id: string;
+  coin?: Coin;
+  alert_type: string;
+  confidence: number;
+  severity: string;
+  predicted_direction: string | null;
+  price_at_detection: number | null;
+  price_24h: number | null;
+  price_48h: number | null;
+  change_pct_24h: number | null;
+  change_pct_48h: number | null;
+  direction_correct_24h: boolean | null;
+  direction_correct_48h: boolean | null;
+  ts: string;
+}
+
+export interface WhaleNetFlowEntity {
+  label: string;
+  buy_usd: number;
+  sell_usd: number;
+  net_usd: number;
+}
+
+export interface WhaleNetFlow {
+  token_symbol: string;
+  buy_usd: number;
+  sell_usd: number;
+  net_usd: number;
+  tx_count: number;
+  entities: WhaleNetFlowEntity[];
+}
+
+export interface SystemHealthSource {
+  name: string;
+  table: string;
+  lastTs: string | null;
+  status: "green" | "yellow" | "red";
+}
+
+export interface SystemHealth {
+  sources: SystemHealthSource[];
+  overallStatus: "green" | "yellow" | "red";
 }
 
 export type EnrichedAlert = IntelligenceAlert & {
@@ -113,6 +173,9 @@ export interface DashboardData {
   narratives: Narrative[];
   socialBuzz: SocialBuzz[];
   whaleActivity: WhaleTransaction[];
+  whaleNetFlows: WhaleNetFlow[];
+  evaluatedSignals: EvaluatedSignal[];
+  systemHealth: SystemHealth;
   signalPerformance: SignalPerformance;
   lastUpdated: string;
 }

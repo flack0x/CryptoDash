@@ -5,12 +5,14 @@ import type { DashboardData } from "@/lib/types";
 import { fetchDashboardData } from "@/lib/queries";
 import MarketMood from "./MarketMood";
 import IntelligenceAlerts from "./IntelligenceAlerts";
+import SignalTrackRecord from "./SignalTrackRecord";
 import TopMovers from "./TopMovers";
 import TrendingCoins from "./TrendingCoins";
 import NarrativeMomentum from "./NarrativeMomentum";
 import SocialBuzz from "./SocialBuzz";
 import WhaleActivity from "./WhaleActivity";
 import RefreshIndicator from "./RefreshIndicator";
+import SystemHealth from "./SystemHealth";
 
 const REFRESH_INTERVAL = 5 * 60 * 1000;
 
@@ -51,6 +53,7 @@ export default function DashboardShell({ initial }: { initial: DashboardData }) 
           {loading && (
             <span className="text-xs text-cyan-400 animate-pulse">Refreshing...</span>
           )}
+          <SystemHealth health={data.systemHealth} />
           <RefreshIndicator lastUpdated={data.lastUpdated} />
           <button
             onClick={refresh}
@@ -66,7 +69,13 @@ export default function DashboardShell({ initial }: { initial: DashboardData }) 
       <MarketMood mood={data.mood} />
 
       {/* Intelligence Alerts — THE primary section */}
-      <IntelligenceAlerts alerts={data.alerts} performance={data.signalPerformance} />
+      <IntelligenceAlerts alerts={data.alerts} />
+
+      {/* Signal Track Record */}
+      <SignalTrackRecord
+        performance={data.signalPerformance}
+        signals={data.evaluatedSignals}
+      />
 
       {/* Top Movers */}
       <TopMovers gainers={data.gainers} losers={data.losers} />
@@ -74,7 +83,10 @@ export default function DashboardShell({ initial }: { initial: DashboardData }) 
       {/* Social Buzz + Whale Activity side by side */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <SocialBuzz buzz={data.socialBuzz} />
-        <WhaleActivity transactions={data.whaleActivity} />
+        <WhaleActivity
+          transactions={data.whaleActivity}
+          netFlows={data.whaleNetFlows}
+        />
       </div>
 
       {/* Trending */}

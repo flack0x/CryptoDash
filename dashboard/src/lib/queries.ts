@@ -1,8 +1,9 @@
 import { supabase } from "./supabase";
 import type {
-  MarketMood, IntelligenceAlert, TrendingCoin, Snapshot,
+  MarketMood, TrendingCoin, Snapshot,
   Narrative, Coin, SocialBuzz, WhaleTransaction, DashboardData,
-  EnrichedAlert, SignalPerformance,
+  EnrichedAlert, SignalPerformance, EvaluatedSignal,
+  WhaleNetFlow, WhaleNetFlowEntity, SystemHealth, SystemHealthSource,
 } from "./types";
 
 async function getLatestMood(): Promise<MarketMood | null> {
@@ -83,6 +84,42 @@ async function getAlerts(): Promise<EnrichedAlert[]> {
       market_cap: snap?.market_cap,
     };
   });
+}
+
+async function getEvaluatedSignals(): Promise<EvaluatedSignal[]> {
+  const { data } = await supabase
+    .from("intelligence_alerts")
+    .select("coin_id, alert_type, confidence, severity, predicted_direction, price_at_detection, price_24h, price_48h, change_pct_24h, change_pct_48h, direction_correct_24h, direction_correct_48h, ts")
+    .not("direction_correct_24h", "is", null)
+    .order("ts", { ascending: false })
+    .limit(100);
+
+  if (!data || data.length === 0) return [];
+
+  // Deduplicate by coin+type (keep most recent evaluation)
+  const seen = new Set<string>();
+  const unique: typeof data = [];
+  for (const a of data) {
+    const key = `${a.coin_id}:${a.alert_type}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(a);
+  }
+
+  const top = unique.slice(0, 20);
+
+  // Enrich with coin names
+  const coinIds = [...new Set(top.map((a) => a.coin_id).filter(Boolean))];
+  const { data: coins } = await supabase
+    .from("coins")
+    .select("id, symbol, name")
+    .in("id", coinIds);
+  const coinMap = new Map((coins ?? []).map((c) => [c.id, c]));
+
+  return top.map((a) => ({
+    ...a,
+    coin: coinMap.get(a.coin_id),
+  }));
 }
 
 async function getTrending(): Promise<(TrendingCoin & { coin?: Coin })[]> {
@@ -228,7 +265,14 @@ async function getSocialBuzz(): Promise<SocialBuzz[]> {
   if (!data || data.length === 0) return [];
 
   // Aggregate by coin_id, filtering out DEX addresses and noise
-  const map = new Map<string, { mentions: number; sentimentSum: number; sentimentCount: number; sources: Set<string> }>();
+  // Also track per-source breakdown
+  const map = new Map<string, {
+    mentions: number;
+    sentimentSum: number;
+    sentimentCount: number;
+    sources: Set<string>;
+    perSource: Map<string, { mentions: number; sentimentSum: number; sentimentCount: number }>;
+  }>();
   for (const s of data) {
     if (!isValidCoinId(s.coin_id)) continue;
 
@@ -240,12 +284,34 @@ async function getSocialBuzz(): Promise<SocialBuzz[]> {
         existing.sentimentCount++;
       }
       existing.sources.add(s.source);
+      // Per-source tracking
+      const ps = existing.perSource.get(s.source);
+      if (ps) {
+        ps.mentions += s.mentions ?? 0;
+        if (s.sentiment_score != null) {
+          ps.sentimentSum += s.sentiment_score;
+          ps.sentimentCount++;
+        }
+      } else {
+        existing.perSource.set(s.source, {
+          mentions: s.mentions ?? 0,
+          sentimentSum: s.sentiment_score ?? 0,
+          sentimentCount: s.sentiment_score != null ? 1 : 0,
+        });
+      }
     } else {
+      const perSource = new Map();
+      perSource.set(s.source, {
+        mentions: s.mentions ?? 0,
+        sentimentSum: s.sentiment_score ?? 0,
+        sentimentCount: s.sentiment_score != null ? 1 : 0,
+      });
       map.set(s.coin_id, {
         mentions: s.mentions ?? 0,
         sentimentSum: s.sentiment_score ?? 0,
         sentimentCount: s.sentiment_score != null ? 1 : 0,
         sources: new Set([s.source]),
+        perSource,
       });
     }
   }
@@ -297,6 +363,11 @@ async function getSocialBuzz(): Promise<SocialBuzz[]> {
       totalMentions: agg.mentions,
       avgSentiment: agg.sentimentCount > 0 ? agg.sentimentSum / agg.sentimentCount : 0,
       sources: [...agg.sources],
+      perSource: [...agg.perSource.entries()].map(([source, ps]) => ({
+        source,
+        mentions: ps.mentions,
+        sentiment: ps.sentimentCount > 0 ? ps.sentimentSum / ps.sentimentCount : 0,
+      })),
     }));
 }
 
@@ -309,7 +380,7 @@ async function getWhaleActivity(): Promise<WhaleTransaction[]> {
   const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
   const { data } = await supabase
     .from("whale_transactions")
-    .select("id, wallet_address, coin_id, token_symbol, amount, amount_usd, direction, label, entity_type, ts")
+    .select("id, wallet_address, coin_id, token_symbol, amount, amount_usd, direction, label, entity_type, ts, tx_hash")
     .gte("ts", since)
     .order("amount_usd", { ascending: false })
     .limit(500);
@@ -334,6 +405,132 @@ async function getWhaleActivity(): Promise<WhaleTransaction[]> {
     .slice(0, 3); // Max 3 stablecoin entries — don't drown real token trades
 
   return [...nonStable, ...stableBig].slice(0, 10);
+}
+
+async function getWhaleNetFlows(): Promise<WhaleNetFlow[]> {
+  const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const { data } = await supabase
+    .from("whale_transactions")
+    .select("wallet_address, token_symbol, amount, amount_usd, direction, label, tx_hash")
+    .gte("ts", since)
+    .not("amount_usd", "is", null)
+    .order("amount_usd", { ascending: false })
+    .limit(1000);
+
+  if (!data || data.length === 0) return [];
+
+  // Deduplicate by tx_hash+wallet (same as other queries)
+  const txSeen = new Set<string>();
+  const deduped = data.filter((tx) => {
+    const key = `${tx.wallet_address}-${tx.token_symbol}-${tx.amount}-${tx.direction}`;
+    if (txSeen.has(key)) return false;
+    txSeen.add(key);
+    return true;
+  });
+
+  // Aggregate per token
+  const tokenMap = new Map<string, {
+    buy_usd: number;
+    sell_usd: number;
+    tx_count: number;
+    entities: Map<string, { buy_usd: number; sell_usd: number }>;
+  }>();
+
+  for (const tx of deduped) {
+    const symbol = tx.token_symbol?.toUpperCase() || "?";
+    const usd = tx.amount_usd ?? 0;
+
+    let entry = tokenMap.get(symbol);
+    if (!entry) {
+      entry = { buy_usd: 0, sell_usd: 0, tx_count: 0, entities: new Map() };
+      tokenMap.set(symbol, entry);
+    }
+
+    entry.tx_count++;
+    if (tx.direction === "buy") {
+      entry.buy_usd += usd;
+    } else {
+      entry.sell_usd += usd;
+    }
+
+    // Per-entity tracking
+    const entityLabel = tx.label || "Unknown";
+    let ent = entry.entities.get(entityLabel);
+    if (!ent) {
+      ent = { buy_usd: 0, sell_usd: 0 };
+      entry.entities.set(entityLabel, ent);
+    }
+    if (tx.direction === "buy") {
+      ent.buy_usd += usd;
+    } else {
+      ent.sell_usd += usd;
+    }
+  }
+
+  // Convert to array and sort by total volume
+  const flows: WhaleNetFlow[] = [...tokenMap.entries()]
+    .map(([symbol, entry]) => ({
+      token_symbol: symbol,
+      buy_usd: entry.buy_usd,
+      sell_usd: entry.sell_usd,
+      net_usd: entry.buy_usd - entry.sell_usd,
+      tx_count: entry.tx_count,
+      entities: [...entry.entities.entries()]
+        .map(([label, e]): WhaleNetFlowEntity => ({
+          label,
+          buy_usd: e.buy_usd,
+          sell_usd: e.sell_usd,
+          net_usd: e.buy_usd - e.sell_usd,
+        }))
+        .sort((a, b) => Math.abs(b.net_usd) - Math.abs(a.net_usd)),
+    }))
+    .sort((a, b) => (b.buy_usd + b.sell_usd) - (a.buy_usd + a.sell_usd))
+    .slice(0, 15);
+
+  return flows;
+}
+
+async function getSystemHealth(): Promise<SystemHealth> {
+  const now = Date.now();
+  const TWO_HOURS = 2 * 60 * 60 * 1000;
+  const SIX_HOURS = 6 * 60 * 60 * 1000;
+
+  const sourceConfigs: { name: string; table: string }[] = [
+    { name: "CoinGecko", table: "snapshots" },
+    { name: "Whale Tracker", table: "whale_transactions" },
+    { name: "Reddit", table: "social_signals" },
+    { name: "Fear & Greed", table: "market_mood" },
+    { name: "Trending", table: "trending" },
+    { name: "Smart Money", table: "intelligence_alerts" },
+    { name: "DeFi TVL", table: "on_chain" },
+  ];
+
+  const results = await Promise.all(
+    sourceConfigs.map(async (src) => {
+      const { data } = await supabase
+        .from(src.table)
+        .select("ts")
+        .order("ts", { ascending: false })
+        .limit(1);
+      const lastTs = data?.[0]?.ts ?? null;
+      let status: "green" | "yellow" | "red" = "red";
+      if (lastTs) {
+        const age = now - new Date(lastTs).getTime();
+        if (age < TWO_HOURS) status = "green";
+        else if (age < SIX_HOURS) status = "yellow";
+      }
+      return { name: src.name, table: src.table, lastTs, status } as SystemHealthSource;
+    })
+  );
+
+  // Overall: red if any red, yellow if any yellow, green otherwise
+  let overall: "green" | "yellow" | "red" = "green";
+  for (const s of results) {
+    if (s.status === "red") { overall = "red"; break; }
+    if (s.status === "yellow") overall = "yellow";
+  }
+
+  return { sources: results, overallStatus: overall };
 }
 
 async function getSignalPerformance(): Promise<SignalPerformance> {
@@ -383,7 +580,7 @@ async function getSignalPerformance(): Promise<SignalPerformance> {
 }
 
 export async function fetchDashboardData(): Promise<DashboardData> {
-  const [mood, alerts, trending, movers, narratives, socialBuzz, whaleActivity, signalPerformance] = await Promise.all([
+  const [mood, alerts, trending, movers, narratives, socialBuzz, whaleActivity, whaleNetFlows, evaluatedSignals, systemHealth, signalPerformance] = await Promise.all([
     getLatestMood(),
     getAlerts(),
     getTrending(),
@@ -391,6 +588,9 @@ export async function fetchDashboardData(): Promise<DashboardData> {
     getNarratives(),
     getSocialBuzz(),
     getWhaleActivity(),
+    getWhaleNetFlows(),
+    getEvaluatedSignals(),
+    getSystemHealth(),
     getSignalPerformance(),
   ]);
 
@@ -403,6 +603,9 @@ export async function fetchDashboardData(): Promise<DashboardData> {
     narratives,
     socialBuzz,
     whaleActivity,
+    whaleNetFlows,
+    evaluatedSignals,
+    systemHealth,
     signalPerformance,
     lastUpdated: new Date().toISOString(),
   };
