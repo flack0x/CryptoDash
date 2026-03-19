@@ -13,6 +13,7 @@ import SocialBuzz from "./SocialBuzz";
 import WhaleActivity from "./WhaleActivity";
 import RefreshIndicator from "./RefreshIndicator";
 import SystemHealth from "./SystemHealth";
+import PaperTrading from "./PaperTrading";
 
 const REFRESH_INTERVAL = 5 * 60 * 1000;
 
@@ -76,6 +77,9 @@ export default function DashboardShell({ initial }: { initial: DashboardData }) 
         performance={data.signalPerformance}
         signals={data.evaluatedSignals}
       />
+
+      {/* Paper Trading P&L */}
+      <PaperTrading data={data.paperTrading} />
 
       {/* Top Movers */}
       <TopMovers gainers={data.gainers} losers={data.losers} />

@@ -157,6 +157,36 @@ export interface SystemHealth {
   overallStatus: "green" | "yellow" | "red";
 }
 
+export interface PaperTrade {
+  coin_id: string;
+  coin?: Coin;
+  alert_type: string;
+  confidence: number;
+  direction: "short" | "long";
+  entry_price: number;
+  exit_price: number;
+  exit_reason: string;
+  net_pnl_pct: number;
+  net_pnl_usd: number;
+  cumulative_usd: number;
+  ts: string;
+}
+
+export interface PaperTradingResult {
+  trades: PaperTrade[];
+  totalTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+  winRate: number;
+  totalPnlUsd: number;
+  avgWinPct: number;
+  avgLossPct: number;
+  profitFactor: number;
+  maxDrawdownUsd: number;
+  bestTradePct: number;
+  worstTradePct: number;
+}
+
 export type EnrichedAlert = IntelligenceAlert & {
   coin?: Coin;
   price_usd?: number;
@@ -177,5 +207,6 @@ export interface DashboardData {
   evaluatedSignals: EvaluatedSignal[];
   systemHealth: SystemHealth;
   signalPerformance: SignalPerformance;
+  paperTrading: PaperTradingResult;
   lastUpdated: string;
 }

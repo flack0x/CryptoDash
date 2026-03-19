@@ -317,6 +317,94 @@ def _print_hit_rate():
         pass
 
 
+def print_paper_trading(result):
+    """Print paper trading simulation results."""
+    from analysis.paper_trading import PaperTradingResult
+
+    if not isinstance(result, PaperTradingResult) or result.total_trades == 0:
+        return
+
+    # Summary panel
+    pnl_color = "green" if result.total_pnl_usd >= 0 else "red"
+    pnl_sign = "+" if result.total_pnl_usd >= 0 else ""
+
+    console.print(
+        Panel(
+            f"  Trades: [bold]{result.total_trades}[/bold]  "
+            f"W/L: [green]{result.winning_trades}[/green]/[red]{result.losing_trades}[/red]  "
+            f"Win Rate: [bold]{result.win_rate:.0%}[/bold]\n"
+            f"  P&L: [{pnl_color}][bold]{pnl_sign}${result.total_pnl_usd:.2f}[/bold][/{pnl_color}]  "
+            f"Avg Win: [green]+{result.avg_win_pct:.2f}%[/green]  "
+            f"Avg Loss: [red]{result.avg_loss_pct:.2f}%[/red]\n"
+            f"  Profit Factor: [bold]{result.profit_factor:.2f}[/bold]  "
+            f"Max Drawdown: [red]-${result.max_drawdown_usd:.2f}[/red]  "
+            f"Best: [green]+{result.best_trade_pct:.2f}%[/green]  "
+            f"Worst: [red]{result.worst_trade_pct:.2f}%[/red]",
+            title="[bold]Paper Trading ($1,000/trade, exit_hype only)[/bold]",
+            border_style="bold green" if result.total_pnl_usd >= 0 else "bold red",
+        )
+    )
+
+    # Trade log table
+    table = Table(
+        title="Trade Log (oldest first)",
+        border_style="dim",
+        show_lines=False,
+    )
+    table.add_column("Coin", width=12)
+    table.add_column("Conf", width=6, justify="right")
+    table.add_column("Dir", width=6, justify="center")
+    table.add_column("Entry", width=12, justify="right")
+    table.add_column("Exit", width=12, justify="right")
+    table.add_column("Exit Reason", width=14)
+    table.add_column("P&L %", width=9, justify="right")
+    table.add_column("P&L $", width=10, justify="right")
+    table.add_column("Cumul $", width=10, justify="right")
+
+    for i, t in enumerate(result.trades):
+        pnl_style = "green" if t.net_pnl_usd > 0 else "red"
+        pnl_pct_str = f"{t.net_pnl_pct * 100:+.2f}%"
+        pnl_usd_str = f"${t.net_pnl_usd:+.2f}"
+        cum_str = f"${result.cumulative_pnl[i]:+.2f}"
+
+        entry_str = f"${t.entry_price:.4f}" if t.entry_price < 1 else f"${t.entry_price:.2f}"
+        exit_str = f"${t.exit_price:.4f}" if t.exit_price < 1 else f"${t.exit_price:.2f}"
+
+        reason_style = "[red]STOP LOSS[/red]" if "stop" in t.exit_reason else t.exit_reason
+
+        table.add_row(
+            t.coin_id[:12],
+            f"{t.confidence:.0%}",
+            "[red]SHORT[/red]" if t.direction == "short" else "[green]LONG[/green]",
+            entry_str,
+            exit_str,
+            reason_style,
+            f"[{pnl_style}]{pnl_pct_str}[/{pnl_style}]",
+            f"[{pnl_style}]{pnl_usd_str}[/{pnl_style}]",
+            f"[{pnl_style}]{cum_str}[/{pnl_style}]",
+        )
+
+    console.print(table)
+
+    # Equity curve (ASCII sparkline)
+    if result.cumulative_pnl:
+        vals = result.cumulative_pnl
+        mn, mx = min(vals), max(vals)
+        rng = mx - mn if mx != mn else 1
+        width = min(60, len(vals))
+        step = max(1, len(vals) // width)
+        sampled = [vals[i] for i in range(0, len(vals), step)]
+        blocks = " _.,:-=!#"
+        line = ""
+        for v in sampled:
+            idx = int((v - mn) / rng * (len(blocks) - 1))
+            line += blocks[idx]
+        console.print(f"\n  Equity: [{pnl_color}]{line}[/{pnl_color}]  "
+                       f"[dim](${mn:+.0f} to ${mx:+.0f})[/dim]")
+
+    console.print()
+
+
 def _format_number(n: float) -> str:
     """Format large numbers with K/M/B suffixes."""
     if n >= 1_000_000_000:

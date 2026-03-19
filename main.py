@@ -56,6 +56,18 @@ def run_outcome_checks():
         logger.error(f"Outcome check failed: {e}", exc_info=True)
 
 
+def run_paper_trading():
+    """Run paper trading simulation and display results."""
+    try:
+        from analysis.paper_trading import simulate
+        from output.cli import print_paper_trading
+        result = simulate()
+        if result.total_trades > 0:
+            print_paper_trading(result)
+    except Exception as e:
+        logger.error(f"Paper trading sim failed: {e}", exc_info=True)
+
+
 def seed_wallets():
     """Load whale wallet seed data from data/whale_wallets.json."""
     import json
@@ -109,6 +121,7 @@ def main():
         run_all_collectors()
         run_analysis()
         run_outcome_checks()
+        run_paper_trading()
 
         logger.info("Starting scheduler (Ctrl+C to stop)...")
         scheduler = create_scheduler()
@@ -127,12 +140,14 @@ def main():
     elif args.analyze:
         run_analysis()
         run_outcome_checks()
+        run_paper_trading()
 
     else:
         # Default: collect + analyze once
         run_all_collectors()
         run_analysis()
         run_outcome_checks()
+        run_paper_trading()
 
 
 if __name__ == "__main__":

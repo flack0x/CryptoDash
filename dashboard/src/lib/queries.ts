@@ -4,6 +4,7 @@ import type {
   Narrative, Coin, SocialBuzz, WhaleTransaction, DashboardData,
   EnrichedAlert, SignalPerformance, EvaluatedSignal,
   WhaleNetFlow, WhaleNetFlowEntity, SystemHealth, SystemHealthSource,
+  PaperTrade, PaperTradingResult,
 } from "./types";
 
 async function getLatestMood(): Promise<MarketMood | null> {
@@ -579,8 +580,131 @@ async function getSignalPerformance(): Promise<SignalPerformance> {
   };
 }
 
+// ── Paper Trading Simulator ──────────────────────────────────────────
+// Mirrors analysis/paper_trading.py logic — runs entirely client-side on evaluated signals
+
+const PAPER_POSITION_SIZE = 1000;   // $1000 per trade
+const PAPER_FEE_PCT = 0.001;       // 0.1% per side
+const PAPER_STOP_LOSS = 0.08;      // 8% stop-loss
+const PAPER_MIN_CONFIDENCE = 0.15;
+const PAPER_TRADEABLE = new Set(["smart_money_exit_hype"]);
+
+async function getPaperTrading(): Promise<PaperTradingResult> {
+  const { data } = await supabase
+    .from("intelligence_alerts")
+    .select("id, coin_id, alert_type, confidence, predicted_direction, price_at_detection, price_24h, price_48h, change_pct_24h, change_pct_48h, ts")
+    .not("price_at_detection", "is", null)
+    .not("checked_24h_at", "is", null)
+    .order("ts", { ascending: true })
+    .limit(500);
+
+  if (!data || data.length === 0) {
+    return emptyPaperResult();
+  }
+
+  // Simulate trades
+  const trades: PaperTrade[] = [];
+  let cumulative = 0;
+
+  for (const sig of data) {
+    if (!PAPER_TRADEABLE.has(sig.alert_type)) continue;
+    if ((sig.confidence ?? 0) < PAPER_MIN_CONFIDENCE) continue;
+    if (!sig.price_at_detection || !sig.price_24h) continue;
+
+    const direction: "short" | "long" = (sig.alert_type === "smart_money_exit_hype" || sig.alert_type === "empty_hype")
+      ? "short" : "long";
+
+    let exitPrice: number;
+    let exitReason: string;
+
+    const change24 = (sig.change_pct_24h ?? 0) / 100;
+    const hitStop = direction === "short"
+      ? change24 > PAPER_STOP_LOSS
+      : change24 < -PAPER_STOP_LOSS;
+
+    if (hitStop) {
+      exitPrice = sig.price_24h;
+      exitReason = "24h_stop_loss";
+    } else if (sig.price_48h != null) {
+      exitPrice = sig.price_48h;
+      exitReason = "48h_close";
+    } else {
+      exitPrice = sig.price_24h;
+      exitReason = "24h_close";
+    }
+
+    const rawPnl = direction === "short"
+      ? -(exitPrice - sig.price_at_detection) / sig.price_at_detection
+      : (exitPrice - sig.price_at_detection) / sig.price_at_detection;
+
+    const fees = 2 * PAPER_FEE_PCT;
+    const netPnlPct = rawPnl - fees;
+    const netPnlUsd = Math.round(netPnlPct * PAPER_POSITION_SIZE * 100) / 100;
+    cumulative = Math.round((cumulative + netPnlUsd) * 100) / 100;
+
+    trades.push({
+      coin_id: sig.coin_id,
+      alert_type: sig.alert_type,
+      confidence: sig.confidence ?? 0,
+      direction,
+      entry_price: sig.price_at_detection,
+      exit_price: exitPrice,
+      exit_reason: exitReason,
+      net_pnl_pct: Math.round(netPnlPct * 10000) / 10000,
+      net_pnl_usd: netPnlUsd,
+      cumulative_usd: cumulative,
+      ts: sig.ts,
+    });
+  }
+
+  if (trades.length === 0) return emptyPaperResult();
+
+  // Enrich with coin names
+  const coinIds = [...new Set(trades.map(t => t.coin_id).filter(Boolean))];
+  const { data: coins } = await supabase.from("coins").select("id, symbol, name").in("id", coinIds);
+  const coinMap = new Map((coins ?? []).map(c => [c.id, c]));
+  for (const t of trades) { t.coin = coinMap.get(t.coin_id); }
+
+  // Stats
+  const wins = trades.filter(t => t.net_pnl_usd > 0);
+  const losses = trades.filter(t => t.net_pnl_usd <= 0);
+  const grossWins = wins.reduce((s, t) => s + t.net_pnl_usd, 0);
+  const grossLosses = Math.abs(losses.reduce((s, t) => s + t.net_pnl_usd, 0));
+
+  let peak = 0, maxDd = 0, running = 0;
+  for (const t of trades) {
+    running += t.net_pnl_usd;
+    if (running > peak) peak = running;
+    const dd = peak - running;
+    if (dd > maxDd) maxDd = dd;
+  }
+
+  return {
+    trades,
+    totalTrades: trades.length,
+    winningTrades: wins.length,
+    losingTrades: losses.length,
+    winRate: wins.length / trades.length,
+    totalPnlUsd: Math.round(cumulative * 100) / 100,
+    avgWinPct: wins.length > 0 ? Math.round(wins.reduce((s, t) => s + t.net_pnl_pct, 0) / wins.length * 10000) / 100 : 0,
+    avgLossPct: losses.length > 0 ? Math.round(losses.reduce((s, t) => s + t.net_pnl_pct, 0) / losses.length * 10000) / 100 : 0,
+    profitFactor: grossLosses > 0 ? Math.round(grossWins / grossLosses * 100) / 100 : grossWins > 0 ? Infinity : 0,
+    maxDrawdownUsd: Math.round(maxDd * 100) / 100,
+    bestTradePct: Math.round(Math.max(...trades.map(t => t.net_pnl_pct)) * 10000) / 100,
+    worstTradePct: Math.round(Math.min(...trades.map(t => t.net_pnl_pct)) * 10000) / 100,
+  };
+}
+
+function emptyPaperResult(): PaperTradingResult {
+  return {
+    trades: [], totalTrades: 0, winningTrades: 0, losingTrades: 0,
+    winRate: 0, totalPnlUsd: 0, avgWinPct: 0, avgLossPct: 0,
+    profitFactor: 0, maxDrawdownUsd: 0, bestTradePct: 0, worstTradePct: 0,
+  };
+}
+
 export async function fetchDashboardData(): Promise<DashboardData> {
-  const [mood, alerts, trending, movers, narratives, socialBuzz, whaleActivity, whaleNetFlows, evaluatedSignals, systemHealth, signalPerformance] = await Promise.all([
+  const [mood, alerts, trending, movers, narratives, socialBuzz, whaleActivity, whaleNetFlows, evaluatedSignals, systemHealth, signalPerformance, paperTrading] = await Promise.all([
     getLatestMood(),
     getAlerts(),
     getTrending(),
@@ -592,6 +716,7 @@ export async function fetchDashboardData(): Promise<DashboardData> {
     getEvaluatedSignals(),
     getSystemHealth(),
     getSignalPerformance(),
+    getPaperTrading(),
   ]);
 
   return {
@@ -607,6 +732,7 @@ export async function fetchDashboardData(): Promise<DashboardData> {
     evaluatedSignals,
     systemHealth,
     signalPerformance,
+    paperTrading,
     lastUpdated: new Date().toISOString(),
   };
 }
