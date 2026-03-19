@@ -272,23 +272,39 @@ def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0) 
 
     # === SMART MONEY BUYING FEAR ===
     # Negative sentiment but whales accumulating
+    # REQUIRES multiple independent entities buying — a single entity (even $9M)
+    # could be treasury ops or internal transfer. 0/5 hit rate with single-entity signals.
     if sentiment < config.BUYING_FEAR_SENTIMENT and net_whale > min_usd:
-        confidence = min(0.95, abs(sentiment) * (net_whale / exit_fear_denom))
-        if confidence >= 0.15:
-            alerts.append(IntelligenceAlert(
-                timestamp=now,
-                alert_type="smart_money_buying_fear",
-                coin_id=coin_id,
-                severity=_severity(confidence),
-                headline=f"Smart money buying fear in {coin_id}",
-                social_mentions=mentions,
-                social_sentiment=sentiment,
-                social_avg_mentions=avg_mentions,
-                whale_volume_usd=net_whale,
-                whale_direction="accumulating",
-                whale_entities=entities,
-                confidence=round(confidence, 3),
-            ))
+        # Count independent buying entities
+        buying_entities = [e for e in entities if e["net_usd"] > 0]
+        buying_entity_count = len(buying_entities)
+        # Require at least 2 independent entities buying
+        if buying_entity_count < 2:
+            pass  # Skip — single entity buying is unreliable (treasury ops, internal transfers)
+        else:
+            # Check for single-entity dominance: if one entity is >80% of total buying, discount
+            top_buyer_pct = (buying_entities[0]["net_usd"] / buy_usd) if buy_usd > 0 else 1.0
+            entity_diversity = min(1.0, buying_entity_count / 3)  # 2 entities = 67%, 3+ = 100%
+            if top_buyer_pct > 0.80:
+                entity_diversity *= 0.5  # Heavy discount when one entity dominates
+
+            confidence = min(0.95, abs(sentiment) * (net_whale / exit_fear_denom))
+            confidence *= entity_diversity
+            if confidence >= 0.15:
+                alerts.append(IntelligenceAlert(
+                    timestamp=now,
+                    alert_type="smart_money_buying_fear",
+                    coin_id=coin_id,
+                    severity=_severity(confidence),
+                    headline=f"Smart money buying fear in {coin_id}",
+                    social_mentions=mentions,
+                    social_sentiment=sentiment,
+                    social_avg_mentions=avg_mentions,
+                    whale_volume_usd=net_whale,
+                    whale_direction="accumulating",
+                    whale_entities=entities,
+                    confidence=round(confidence, 3),
+                ))
 
     # === SMART MONEY EXIT HYPE ===
     # Positive sentiment but whales dumping

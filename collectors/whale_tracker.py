@@ -49,6 +49,13 @@ class WhaleTrackerCollector(BaseCollector):
             logger.warning(f"[{self.name}] No tracked wallets found. Run --seed-wallets first.")
             return
 
+        # Batch-fetch all token prices ONCE instead of per-transaction (N+1 → 1 query)
+        all_coin_ids = [cid for cid in TOKEN_SYMBOL_MAP.values()
+                        if cid not in ("usd-coin", "tether", "dai")]
+        unique_coin_ids = list(set(all_coin_ids))
+        self._price_cache = db.get_latest_prices(unique_coin_ids) if unique_coin_ids else {}
+        logger.info(f"[{self.name}] Cached prices for {len(self._price_cache)} tokens")
+
         total_txs = 0
         # Check ALL wallets every run — at 0.35s per call, 100 wallets = ~35 seconds
         # well within GitHub Actions' 3-minute run budget
@@ -128,16 +135,13 @@ class WhaleTrackerCollector(BaseCollector):
         return len(transactions)
 
     def _estimate_usd(self, coin_id: Optional[str], amount: float) -> Optional[float]:
-        """Estimate USD value using latest price from our DB."""
+        """Estimate USD value using batch-cached prices (no DB query per call)."""
         if not coin_id:
             return None
         # Stablecoins
         if coin_id in ("usd-coin", "tether", "dai"):
             return amount
-        try:
-            snapshot = db.get_latest_snapshot(coin_id)
-            if snapshot and snapshot.price_usd > 0:
-                return amount * snapshot.price_usd
-        except Exception:
-            pass
+        price = getattr(self, "_price_cache", {}).get(coin_id)
+        if price and price > 0:
+            return amount * price
         return None
