@@ -536,10 +536,12 @@ async function getSystemHealth(): Promise<SystemHealth> {
 
 async function getSignalPerformance(): Promise<SignalPerformance> {
   // Fetch all alerts that have outcome data OR are pending evaluation
+  // Order by ts DESC so dedup keeps most recent (matches getEvaluatedSignals)
   const { data: evaluated } = await supabase
     .from("intelligence_alerts")
     .select("coin_id, alert_type, direction_correct_24h, direction_correct_48h")
-    .not("direction_correct_24h", "is", null);
+    .not("direction_correct_24h", "is", null)
+    .order("ts", { ascending: false });
 
   const { data: pending } = await supabase
     .from("intelligence_alerts")
@@ -548,11 +550,11 @@ async function getSignalPerformance(): Promise<SignalPerformance> {
     .is("direction_correct_24h", null);
 
   // Deduplicate: same coin+type = same signal (re-detected across runs)
+  // Ordered by ts DESC so first seen = most recent evaluation
   const evalMap24 = new Map<string, boolean>();
   const evalMap48 = new Map<string, boolean>();
   for (const a of evaluated ?? []) {
     const key = `${a.coin_id}:${a.alert_type}`;
-    // Keep first evaluation (most confident — they're ordered by confidence)
     if (!evalMap24.has(key)) evalMap24.set(key, a.direction_correct_24h === true);
     if (a.direction_correct_48h != null && !evalMap48.has(key)) {
       evalMap48.set(key, a.direction_correct_48h === true);
@@ -569,6 +571,17 @@ async function getSignalPerformance(): Promise<SignalPerformance> {
   const total48h = evalMap48.size;
   const correct48h = [...evalMap48.values()].filter(Boolean).length;
 
+  // Per-pattern breakdown
+  const exitHype24 = [...evalMap24.entries()].filter(([k]) => k.endsWith(":smart_money_exit_hype"));
+  const exitHype48 = [...evalMap48.entries()].filter(([k]) => k.endsWith(":smart_money_exit_hype"));
+  const buyFear24 = [...evalMap24.entries()].filter(([k]) => k.endsWith(":smart_money_buying_fear"));
+  const buyFear48 = [...evalMap48.entries()].filter(([k]) => k.endsWith(":smart_money_buying_fear"));
+
+  const ehCorrect24 = exitHype24.filter(([, v]) => v).length;
+  const ehCorrect48 = exitHype48.filter(([, v]) => v).length;
+  const bfCorrect24 = buyFear24.filter(([, v]) => v).length;
+  const bfCorrect48 = buyFear48.filter(([, v]) => v).length;
+
   return {
     total24h,
     correct24h,
@@ -577,6 +590,12 @@ async function getSignalPerformance(): Promise<SignalPerformance> {
     correct48h,
     hitRate48h: total48h > 0 ? correct48h / total48h : null,
     pendingEvaluation: pendingKeys.size,
+    exitHype24h: exitHype24.length > 0 ? ehCorrect24 / exitHype24.length : null,
+    exitHype48h: exitHype48.length > 0 ? ehCorrect48 / exitHype48.length : null,
+    exitHypeCount: exitHype24.length,
+    buyingFear24h: buyFear24.length > 0 ? bfCorrect24 / buyFear24.length : null,
+    buyingFear48h: buyFear48.length > 0 ? bfCorrect48 / buyFear48.length : null,
+    buyingFearCount: buyFear24.length,
   };
 }
 
@@ -611,14 +630,14 @@ async function getPaperTrading(): Promise<PaperTradingResult> {
     if ((sig.confidence ?? 0) < PAPER_MIN_CONFIDENCE) continue;
     if (!sig.price_at_detection || !sig.price_24h) continue;
 
-    const direction: "short" | "long" = (sig.alert_type === "smart_money_exit_hype" || sig.alert_type === "empty_hype")
-      ? "short" : "long";
+    const direction: "sell" | "buy" = (sig.alert_type === "smart_money_exit_hype" || sig.alert_type === "empty_hype")
+      ? "sell" : "buy";
 
     let exitPrice: number;
     let exitReason: string;
 
     const change24 = (sig.change_pct_24h ?? 0) / 100;
-    const hitStop = direction === "short"
+    const hitStop = direction === "sell"
       ? change24 > PAPER_STOP_LOSS
       : change24 < -PAPER_STOP_LOSS;
 
@@ -633,7 +652,7 @@ async function getPaperTrading(): Promise<PaperTradingResult> {
       exitReason = "24h_close";
     }
 
-    const rawPnl = direction === "short"
+    const rawPnl = direction === "sell"
       ? -(exitPrice - sig.price_at_detection) / sig.price_at_detection
       : (exitPrice - sig.price_at_detection) / sig.price_at_detection;
 

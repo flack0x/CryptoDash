@@ -160,7 +160,7 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **Direction semantics**: stealth_accumulation/buying_fear = bullish (price should go UP), empty_hype/exit_hype = bearish (price should go DOWN)
 - **DB columns on `intelligence_alerts`**: price_at_detection, predicted_direction, price_24h, price_48h, change_pct_24h, change_pct_48h, direction_correct_24h, direction_correct_48h, checked_24h_at, checked_48h_at
 - **Current hit rates (as of 2026-03-19, 24 evaluated)**: Overall 29% at 24h, 35% at 48h. **exit_hype is the ONLY working pattern**: 50% at 24h, 55% at 48h (75% excl tainted LINK data). **buying_fear is 0/10 at 24h, 0/6 at 48h** — fundamentally broken, detects falling knives not bottoms. stealth_accumulation and empty_hype have 0 signals so far.
-- **Paper trading simulator** (`analysis/paper_trading.py`): Simulates $1,000 trades on all evaluated exit_hype signals. Rules: 0.1% fee/side (0.2% round trip), 8% stop-loss checked at 24h, close at 48h. Only trades `smart_money_exit_hype` (only pattern with positive hit rate). Outputs total P&L, win rate, profit factor, max drawdown, per-trade log with cumulative equity curve. Runs after outcome checks in every `main.py` execution. Dashboard shows same data via `PaperTrading.tsx`.
+- **Paper trading simulator** (`analysis/paper_trading.py`): Simulates $1,000 trades on all evaluated exit_hype signals. Rules: 0.1% fee/side (0.2% round trip), 8% stop-loss checked at 24h, close at 48h. Only trades `smart_money_exit_hype` (only pattern with positive hit rate). Outputs total P&L, win rate, profit factor, max drawdown, per-trade log with cumulative equity curve. Runs after outcome checks in every `main.py` execution. Dashboard shows same data via `PaperTrading.tsx`. **Dashboard uses "SELL"/"BUY" labels** (spot trading terminology, not futures "SHORT"/"LONG").
 
 ### Dashboard Data Quality Filters
 - **Intelligence Alerts**: **4-hour window** (not 24h) — alerts must be re-detected by recent analysis runs to stay visible. Stale/false alerts disappear within 4 hours instead of lingering for a full day. NO fallback to old alerts. Enriched with price data (price, 24h change, market cap) via `EnrichedAlert` type. Only shows coins in CoinGecko top 250 with proper names. **Expandable cards** show full brief, whale entity breakdown (per-entity net USD), social context, predicted direction.
@@ -176,8 +176,8 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 | `DashboardShell.tsx` | Client wrapper, holds state, auto-refresh every 5 min, section layout |
 | `MarketMood.tsx` | Fear & Greed gauge (0-100) |
 | `IntelligenceAlerts.tsx` | Smart money signals — expandable cards with brief, whale entities, social context, predicted direction |
-| `SignalTrackRecord.tsx` | Hit rate summary cards (24h/48h) + expandable evaluated outcomes table |
-| `PaperTrading.tsx` | Paper trading P&L: summary cards, equity curve, expandable trade log |
+| `SignalTrackRecord.tsx` | Hit rate summary cards (24h/48h) + per-pattern breakdown (exit_hype/buying_fear) + expandable evaluated outcomes table |
+| `PaperTrading.tsx` | Paper trading P&L: summary cards, equity curve, expandable trade log. Uses "SELL"/"BUY" labels (spot trading, not futures) |
 | `TopMovers.tsx` | Gainers/Losers side-by-side cards |
 | `SocialBuzz.tsx` | Social mention counts + sentiment + per-source breakdown when 2+ sources |
 | `WhaleActivity.tsx` | Net Flow (default) / Transactions toggle. Net Flow: per-token buy/sell bars with entity drill-down. Transactions: table with Etherscan links |

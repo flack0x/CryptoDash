@@ -159,7 +159,7 @@ export default function PaperTrading({ data }: { data: PaperTradingResult }) {
                         {Math.round(t.confidence * 100)}%
                       </td>
                       <td className="py-1.5 pr-3 text-xs">
-                        <span className={t.direction === "short" ? "text-red-400" : "text-green-400"}>
+                        <span className={t.direction === "sell" ? "text-red-400" : "text-green-400"}>
                           {t.direction.toUpperCase()}
                         </span>
                       </td>

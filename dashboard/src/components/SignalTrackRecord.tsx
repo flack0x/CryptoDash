@@ -81,6 +81,30 @@ export default function SignalTrackRecord({
         </div>
       </div>
 
+      {/* Per-pattern breakdown */}
+      {(performance.exitHypeCount > 0 || performance.buyingFearCount > 0) && (
+        <div className="mt-2 grid grid-cols-2 gap-3">
+          {performance.exitHypeCount > 0 && (
+            <div className="rounded-md bg-gray-800/30 px-3 py-1.5 flex items-center justify-between">
+              <span className="text-xs text-red-400 font-medium">Exit Hype</span>
+              <span className="text-xs text-gray-300 tabular-nums">
+                {performance.exitHype24h !== null ? `${Math.round(performance.exitHype24h * 100)}%` : "—"} / {performance.exitHype48h !== null ? `${Math.round(performance.exitHype48h * 100)}%` : "—"}
+                <span className="text-gray-500 ml-1">({performance.exitHypeCount})</span>
+              </span>
+            </div>
+          )}
+          {performance.buyingFearCount > 0 && (
+            <div className="rounded-md bg-gray-800/30 px-3 py-1.5 flex items-center justify-between">
+              <span className="text-xs text-blue-400 font-medium">Buying Fear</span>
+              <span className="text-xs text-gray-300 tabular-nums">
+                {performance.buyingFear24h !== null ? `${Math.round(performance.buyingFear24h * 100)}%` : "—"} / {performance.buyingFear48h !== null ? `${Math.round(performance.buyingFear48h * 100)}%` : "—"}
+                <span className="text-gray-500 ml-1">({performance.buyingFearCount})</span>
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Expanded: outcomes table */}
       {expanded && signals.length > 0 && (
         <div className="mt-4 overflow-x-auto">

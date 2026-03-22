@@ -110,6 +110,12 @@ export interface SignalPerformance {
   correct48h: number;
   hitRate48h: number | null;
   pendingEvaluation: number;
+  exitHype24h: number | null;
+  exitHype48h: number | null;
+  exitHypeCount: number;
+  buyingFear24h: number | null;
+  buyingFear48h: number | null;
+  buyingFearCount: number;
 }
 
 export interface EvaluatedSignal {
@@ -162,7 +168,7 @@ export interface PaperTrade {
   coin?: Coin;
   alert_type: string;
   confidence: number;
-  direction: "short" | "long";
+  direction: "sell" | "buy";
   entry_price: number;
   exit_price: number;
   exit_reason: string;
