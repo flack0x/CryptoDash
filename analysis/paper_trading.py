@@ -1,12 +1,12 @@
 """Paper trading simulator — answers "would following these signals make money?"
 
-Takes all evaluated intelligence alerts and simulates trades with realistic rules:
-- Entry at price_at_detection
-- Exit at 48h (or 24h stop-loss if exceeded)
-- Fees per side (0.1% = 0.2% round trip)
-- Position sizing ($1000 default)
-- SPOT-ONLY MODE: Only trades BULLISH signals (buy low, sell high)
-  exit_hype is bearish (requires shorting) — not tradeable in spot.
+SPOT-ONLY MODE: Simulates BUY positions on bullish signals (buy low, sell high).
+Uses profit target + stop loss + 72h max hold instead of fixed 48h close.
+
+Exit logic (checked at each checkpoint in order):
+  1. 24h: +5% profit target → EXIT WIN | -8% stop loss → EXIT LOSS
+  2. 48h: same checks
+  3. 72h: force close (mandatory exit)
 
 This is NOT backtesting on historical data — it's forward-testing on live signals
 that the system generated in real-time.
@@ -15,6 +15,7 @@ that the system generated in real-time.
 import logging
 from dataclasses import dataclass, field
 
+import config
 import db
 
 logger = logging.getLogger(__name__)
@@ -23,12 +24,11 @@ logger = logging.getLogger(__name__)
 
 POSITION_SIZE_USD = 1000      # dollars per trade
 FEE_PCT = 0.001               # 0.1% per side (Binance/Coinbase tier 1)
-STOP_LOSS_PCT = 0.08          # 8% stop-loss (exit at 24h if exceeded)
+STOP_LOSS_PCT = config.STOP_LOSS_PCT      # 8% stop-loss
+PROFIT_TARGET_PCT = config.PROFIT_TARGET_PCT  # 5% profit target
 MIN_CONFIDENCE = 0.15         # minimum confidence to trade (match alert threshold)
-# SPOT-ONLY: Only trade BULLISH patterns (buy coin, sell later for profit).
-# exit_hype is bearish (needs shorting) — excluded.
-# buying_fear is broken — 9% at 24h, fires too early, loses money as long positions.
-# dip_buy is the ONLY spot-tradeable signal (temporally confirmed accumulation).
+# SPOT-ONLY: Only trade dip_buy (temporally confirmed accumulation).
+# exit_hype needs shorting — excluded. buying_fear fires too early — loses money as longs.
 TRADEABLE_PATTERNS = {"smart_money_dip_buy"}
 
 
@@ -38,10 +38,10 @@ class PaperTrade:
     coin_id: str
     alert_type: str
     confidence: float
-    direction: str              # "short" or "long"
+    direction: str              # "long" (spot-only)
     entry_price: float
     exit_price: float
-    exit_reason: str            # "48h_close", "24h_stop_loss", "24h_close"
+    exit_reason: str            # "24h_profit_target", "24h_stop_loss", "48h_profit_target", "48h_stop_loss", "72h_close", etc.
     raw_pnl_pct: float          # before fees
     fees_pct: float
     net_pnl_pct: float          # after fees
@@ -92,8 +92,9 @@ def _fetch_evaluated_signals() -> list[dict]:
         client.table("intelligence_alerts")
         .select("id, coin_id, alert_type, confidence, severity, "
                 "predicted_direction, price_at_detection, "
-                "price_24h, price_48h, change_pct_24h, change_pct_48h, "
-                "direction_correct_24h, direction_correct_48h, ts")
+                "price_24h, price_48h, price_72h, "
+                "change_pct_24h, change_pct_48h, change_pct_72h, "
+                "direction_correct_24h, direction_correct_48h, direction_correct_72h, ts")
         .not_.is_("price_at_detection", "null")
         .not_.is_("checked_24h_at", "null")
         .order("ts", desc=False)
@@ -104,11 +105,10 @@ def _fetch_evaluated_signals() -> list[dict]:
 
 
 def _simulate_single(sig: dict) -> PaperTrade | None:
-    """Simulate a single trade from an evaluated signal."""
+    """Simulate a single trade with profit target + stop loss + 72h max hold."""
     alert_type = sig["alert_type"]
     confidence = sig.get("confidence", 0) or 0
 
-    # Filter: only trade configured patterns above threshold
     if alert_type not in TRADEABLE_PATTERNS:
         return None
     if confidence < MIN_CONFIDENCE:
@@ -117,43 +117,51 @@ def _simulate_single(sig: dict) -> PaperTrade | None:
     entry_price = sig.get("price_at_detection")
     price_24h = sig.get("price_24h")
     price_48h = sig.get("price_48h")
-    change_24h = sig.get("change_pct_24h")
+    price_72h = sig.get("price_72h")
 
     if not entry_price or not price_24h:
         return None
 
-    # SPOT-ONLY: all tradeable patterns are BULLISH = long (buy coin, sell later)
+    # SPOT-ONLY: all positions are long (buy coin, sell later)
     direction = "long"
-
-    # Check 24h stop-loss
     exit_price = None
     exit_reason = None
 
-    if change_24h is not None:
-        change_frac = change_24h / 100.0
-        # For shorts: loss when price goes UP. For longs: loss when price goes DOWN.
-        if direction == "short" and change_frac > STOP_LOSS_PCT:
-            exit_price = price_24h
-            exit_reason = "24h_stop_loss"
-        elif direction == "long" and change_frac < -STOP_LOSS_PCT:
-            exit_price = price_24h
-            exit_reason = "24h_stop_loss"
+    # Check 24h: profit target or stop loss
+    change_24 = (price_24h - entry_price) / entry_price
+    if change_24 >= PROFIT_TARGET_PCT:
+        exit_price = price_24h
+        exit_reason = "24h_profit_target"
+    elif change_24 <= -STOP_LOSS_PCT:
+        exit_price = price_24h
+        exit_reason = "24h_stop_loss"
 
+    # Check 48h: profit target or stop loss
+    if exit_price is None and price_48h is not None:
+        change_48 = (price_48h - entry_price) / entry_price
+        if change_48 >= PROFIT_TARGET_PCT:
+            exit_price = price_48h
+            exit_reason = "48h_profit_target"
+        elif change_48 <= -STOP_LOSS_PCT:
+            exit_price = price_48h
+            exit_reason = "48h_stop_loss"
+
+    # Check 72h: mandatory close (max hold)
+    if exit_price is None and price_72h is not None:
+        exit_price = price_72h
+        exit_reason = "72h_close"
+
+    # Fallback: use latest available price
     if exit_price is None:
         if price_48h is not None:
             exit_price = price_48h
             exit_reason = "48h_close"
         else:
-            # Only 24h data available, use it
             exit_price = price_24h
             exit_reason = "24h_close"
 
-    # Calculate P&L
-    if direction == "short":
-        raw_pnl_pct = -(exit_price - entry_price) / entry_price
-    else:
-        raw_pnl_pct = (exit_price - entry_price) / entry_price
-
+    # Calculate P&L (SPOT-ONLY: always long — profit when price goes UP)
+    raw_pnl_pct = (exit_price - entry_price) / entry_price
     fees = 2 * FEE_PCT  # round trip
     net_pnl_pct = raw_pnl_pct - fees
     net_pnl_usd = net_pnl_pct * POSITION_SIZE_USD

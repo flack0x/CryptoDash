@@ -27,9 +27,10 @@ def check_outcomes():
 
     checked_24 = _check_checkpoint(now, "24h", timedelta(hours=24))
     checked_48 = _check_checkpoint(now, "48h", timedelta(hours=48))
+    checked_72 = _check_checkpoint(now, "72h", timedelta(hours=72))
 
-    if checked_24 or checked_48:
-        logger.info(f"Outcome checks: {checked_24} at 24h, {checked_48} at 48h")
+    if checked_24 or checked_48 or checked_72:
+        logger.info(f"Outcome checks: {checked_24} at 24h, {checked_48} at 48h, {checked_72} at 72h")
 
 
 def _check_checkpoint(now: datetime, checkpoint: str, offset: timedelta) -> int:
@@ -65,12 +66,19 @@ def _check_checkpoint(now: datetime, checkpoint: str, offset: timedelta) -> int:
                 "direction_correct_24h": direction_correct,
                 "checked_24h_at": now.isoformat(),
             }
-        else:
+        elif checkpoint == "48h":
             updates = {
                 "price_48h": price,
                 "change_pct_48h": round(change_pct, 4),
                 "direction_correct_48h": direction_correct,
                 "checked_48h_at": now.isoformat(),
+            }
+        else:  # 72h
+            updates = {
+                "price_72h": price,
+                "change_pct_72h": round(change_pct, 4),
+                "direction_correct_72h": direction_correct,
+                "checked_72h_at": now.isoformat(),
             }
 
         db.update_alert_outcome(outcome["id"], updates)
@@ -128,8 +136,10 @@ def compute_hit_rates() -> dict:
     result = {
         "overall_24h": {"total": 0, "correct": 0},
         "overall_48h": {"total": 0, "correct": 0},
+        "overall_72h": {"total": 0, "correct": 0},
         "by_type_24h": {},
         "by_type_48h": {},
+        "by_type_72h": {},
     }
 
     for s in stats:
@@ -157,12 +167,24 @@ def compute_hit_rates() -> dict:
             if s["direction_correct_48h"]:
                 result["by_type_48h"][at]["correct"] += 1
 
+        if s.get("direction_correct_72h") is not None:
+            result["overall_72h"]["total"] += 1
+            if s["direction_correct_72h"]:
+                result["overall_72h"]["correct"] += 1
+
+            at = s["alert_type"]
+            if at not in result["by_type_72h"]:
+                result["by_type_72h"][at] = {"total": 0, "correct": 0}
+            result["by_type_72h"][at]["total"] += 1
+            if s["direction_correct_72h"]:
+                result["by_type_72h"][at]["correct"] += 1
+
     # Calculate rates
-    for key in ["overall_24h", "overall_48h"]:
+    for key in ["overall_24h", "overall_48h", "overall_72h"]:
         t = result[key]["total"]
         result[key]["rate"] = result[key]["correct"] / t if t > 0 else 0.0
 
-    for bucket in ["by_type_24h", "by_type_48h"]:
+    for bucket in ["by_type_24h", "by_type_48h", "by_type_72h"]:
         for counts in result[bucket].values():
             t = counts["total"]
             counts["rate"] = counts["correct"] / t if t > 0 else 0.0

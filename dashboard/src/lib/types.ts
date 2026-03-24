@@ -109,15 +109,21 @@ export interface SignalPerformance {
   total48h: number;
   correct48h: number;
   hitRate48h: number | null;
+  total72h: number;
+  correct72h: number;
+  hitRate72h: number | null;
   pendingEvaluation: number;
   exitHype24h: number | null;
   exitHype48h: number | null;
+  exitHype72h: number | null;
   exitHypeCount: number;
   buyingFear24h: number | null;
   buyingFear48h: number | null;
+  buyingFear72h: number | null;
   buyingFearCount: number;
   dipBuy24h: number | null;
   dipBuy48h: number | null;
+  dipBuy72h: number | null;
   dipBuyCount: number;
 }
 
@@ -131,10 +137,13 @@ export interface EvaluatedSignal {
   price_at_detection: number | null;
   price_24h: number | null;
   price_48h: number | null;
+  price_72h: number | null;
   change_pct_24h: number | null;
   change_pct_48h: number | null;
+  change_pct_72h: number | null;
   direction_correct_24h: boolean | null;
   direction_correct_48h: boolean | null;
+  direction_correct_72h: boolean | null;
   ts: string;
 }
 

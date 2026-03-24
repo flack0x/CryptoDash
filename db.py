@@ -691,6 +691,7 @@ def insert_intelligence_alerts(alerts: list[IntelligenceAlert]):
             "raw_data": json.loads(a.raw_data) if isinstance(a.raw_data, str) else a.raw_data,
             "price_at_detection": a.price_at_detection,
             "predicted_direction": DIRECTION_MAP.get(a.alert_type),
+            "mood_at_detection": a.mood_at_detection,
         }
         for a in alerts
     ]
@@ -732,6 +733,8 @@ def get_pending_outcome_checks(checkpoint: str, cutoff: datetime) -> list[dict]:
         query = query.is_("checked_24h_at", "null")
     elif checkpoint == "48h":
         query = query.not_.is_("checked_24h_at", "null").is_("checked_48h_at", "null")
+    elif checkpoint == "72h":
+        query = query.not_.is_("checked_48h_at", "null").is_("checked_72h_at", "null")
     return query.order("ts").execute().data or []
 
 
@@ -747,7 +750,9 @@ def get_outcome_stats() -> list[dict]:
     result = (
         client.table("intelligence_alerts")
         .select("alert_type, confidence, severity, predicted_direction, "
-                "change_pct_24h, change_pct_48h, direction_correct_24h, direction_correct_48h")
+                "change_pct_24h, change_pct_48h, change_pct_72h, "
+                "direction_correct_24h, direction_correct_48h, direction_correct_72h, "
+                "mood_at_detection")
         .not_.is_("checked_24h_at", "null")
         .order("ts", desc=True)
         .limit(1000)

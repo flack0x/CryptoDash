@@ -156,3 +156,4 @@ class IntelligenceAlert:
     confidence: float = 0.0
     raw_data: Optional[str] = None
     price_at_detection: Optional[float] = None
+    mood_at_detection: Optional[int] = None

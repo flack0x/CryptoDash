@@ -171,8 +171,10 @@ export default function PaperTrading({ data }: { data: PaperTradingResult }) {
                         {formatPrice(t.exit_price)}
                       </td>
                       <td className="py-1.5 pr-3 text-xs text-gray-400">
-                        {t.exit_reason === "24h_stop_loss" ? (
+                        {t.exit_reason.includes("stop_loss") ? (
                           <span className="text-red-400">STOP LOSS</span>
+                        ) : t.exit_reason.includes("profit_target") ? (
+                          <span className="text-green-400">PROFIT TARGET</span>
                         ) : t.exit_reason}
                       </td>
                       <td className={`py-1.5 pr-3 text-right tabular-nums text-xs font-medium ${pc}`}>

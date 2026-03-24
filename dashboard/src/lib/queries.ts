@@ -90,7 +90,7 @@ async function getAlerts(): Promise<EnrichedAlert[]> {
 async function getEvaluatedSignals(): Promise<EvaluatedSignal[]> {
   const { data } = await supabase
     .from("intelligence_alerts")
-    .select("coin_id, alert_type, confidence, severity, predicted_direction, price_at_detection, price_24h, price_48h, change_pct_24h, change_pct_48h, direction_correct_24h, direction_correct_48h, ts")
+    .select("coin_id, alert_type, confidence, severity, predicted_direction, price_at_detection, price_24h, price_48h, price_72h, change_pct_24h, change_pct_48h, change_pct_72h, direction_correct_24h, direction_correct_48h, direction_correct_72h, ts")
     .not("direction_correct_24h", "is", null)
     .order("ts", { ascending: false })
     .limit(100);
@@ -539,7 +539,7 @@ async function getSignalPerformance(): Promise<SignalPerformance> {
   // Order by ts DESC so dedup keeps most recent (matches getEvaluatedSignals)
   const { data: evaluated } = await supabase
     .from("intelligence_alerts")
-    .select("coin_id, alert_type, direction_correct_24h, direction_correct_48h")
+    .select("coin_id, alert_type, direction_correct_24h, direction_correct_48h, direction_correct_72h")
     .not("direction_correct_24h", "is", null)
     .order("ts", { ascending: false });
 
@@ -553,11 +553,15 @@ async function getSignalPerformance(): Promise<SignalPerformance> {
   // Ordered by ts DESC so first seen = most recent evaluation
   const evalMap24 = new Map<string, boolean>();
   const evalMap48 = new Map<string, boolean>();
+  const evalMap72 = new Map<string, boolean>();
   for (const a of evaluated ?? []) {
     const key = `${a.coin_id}:${a.alert_type}`;
     if (!evalMap24.has(key)) evalMap24.set(key, a.direction_correct_24h === true);
     if (a.direction_correct_48h != null && !evalMap48.has(key)) {
       evalMap48.set(key, a.direction_correct_48h === true);
+    }
+    if (a.direction_correct_72h != null && !evalMap72.has(key)) {
+      evalMap72.set(key, a.direction_correct_72h === true);
     }
   }
 
@@ -570,39 +574,41 @@ async function getSignalPerformance(): Promise<SignalPerformance> {
   const correct24h = [...evalMap24.values()].filter(Boolean).length;
   const total48h = evalMap48.size;
   const correct48h = [...evalMap48.values()].filter(Boolean).length;
+  const total72h = evalMap72.size;
+  const correct72h = [...evalMap72.values()].filter(Boolean).length;
 
-  // Per-pattern breakdown
-  const exitHype24 = [...evalMap24.entries()].filter(([k]) => k.endsWith(":smart_money_exit_hype"));
-  const exitHype48 = [...evalMap48.entries()].filter(([k]) => k.endsWith(":smart_money_exit_hype"));
-  const buyFear24 = [...evalMap24.entries()].filter(([k]) => k.endsWith(":smart_money_buying_fear"));
-  const buyFear48 = [...evalMap48.entries()].filter(([k]) => k.endsWith(":smart_money_buying_fear"));
-  const dipBuy24 = [...evalMap24.entries()].filter(([k]) => k.endsWith(":smart_money_dip_buy"));
-  const dipBuy48 = [...evalMap48.entries()].filter(([k]) => k.endsWith(":smart_money_dip_buy"));
+  // Per-pattern breakdown (24h, 48h, 72h for each pattern)
+  const filterPattern = (map: Map<string, boolean>, pat: string) =>
+    [...map.entries()].filter(([k]) => k.endsWith(`:${pat}`));
+  const countCorrect = (entries: [string, boolean][]) => entries.filter(([, v]) => v).length;
 
-  const ehCorrect24 = exitHype24.filter(([, v]) => v).length;
-  const ehCorrect48 = exitHype48.filter(([, v]) => v).length;
-  const bfCorrect24 = buyFear24.filter(([, v]) => v).length;
-  const bfCorrect48 = buyFear48.filter(([, v]) => v).length;
-  const dbCorrect24 = dipBuy24.filter(([, v]) => v).length;
-  const dbCorrect48 = dipBuy48.filter(([, v]) => v).length;
+  const eh24 = filterPattern(evalMap24, "smart_money_exit_hype");
+  const eh48 = filterPattern(evalMap48, "smart_money_exit_hype");
+  const eh72 = filterPattern(evalMap72, "smart_money_exit_hype");
+  const bf24 = filterPattern(evalMap24, "smart_money_buying_fear");
+  const bf48 = filterPattern(evalMap48, "smart_money_buying_fear");
+  const bf72 = filterPattern(evalMap72, "smart_money_buying_fear");
+  const db24 = filterPattern(evalMap24, "smart_money_dip_buy");
+  const db48 = filterPattern(evalMap48, "smart_money_dip_buy");
+  const db72 = filterPattern(evalMap72, "smart_money_dip_buy");
+
+  const rate = (entries: [string, boolean][]) =>
+    entries.length > 0 ? countCorrect(entries) / entries.length : null;
 
   return {
-    total24h,
-    correct24h,
+    total24h, correct24h,
     hitRate24h: total24h > 0 ? correct24h / total24h : null,
-    total48h,
-    correct48h,
+    total48h, correct48h,
     hitRate48h: total48h > 0 ? correct48h / total48h : null,
+    total72h, correct72h,
+    hitRate72h: total72h > 0 ? correct72h / total72h : null,
     pendingEvaluation: pendingKeys.size,
-    exitHype24h: exitHype24.length > 0 ? ehCorrect24 / exitHype24.length : null,
-    exitHype48h: exitHype48.length > 0 ? ehCorrect48 / exitHype48.length : null,
-    exitHypeCount: exitHype24.length,
-    buyingFear24h: buyFear24.length > 0 ? bfCorrect24 / buyFear24.length : null,
-    buyingFear48h: buyFear48.length > 0 ? bfCorrect48 / buyFear48.length : null,
-    buyingFearCount: buyFear24.length,
-    dipBuy24h: dipBuy24.length > 0 ? dbCorrect24 / dipBuy24.length : null,
-    dipBuy48h: dipBuy48.length > 0 ? dbCorrect48 / dipBuy48.length : null,
-    dipBuyCount: dipBuy24.length,
+    exitHype24h: rate(eh24), exitHype48h: rate(eh48), exitHype72h: rate(eh72),
+    exitHypeCount: eh24.length,
+    buyingFear24h: rate(bf24), buyingFear48h: rate(bf48), buyingFear72h: rate(bf72),
+    buyingFearCount: bf24.length,
+    dipBuy24h: rate(db24), dipBuy48h: rate(db48), dipBuy72h: rate(db72),
+    dipBuyCount: db24.length,
   };
 }
 
@@ -612,15 +618,15 @@ async function getSignalPerformance(): Promise<SignalPerformance> {
 const PAPER_POSITION_SIZE = 1000;   // $1000 per trade
 const PAPER_FEE_PCT = 0.001;       // 0.1% per side
 const PAPER_STOP_LOSS = 0.08;      // 8% stop-loss
+const PAPER_PROFIT_TARGET = 0.05;  // 5% profit target
 const PAPER_MIN_CONFIDENCE = 0.15;
 // SPOT-ONLY: Only trade dip_buy (temporally confirmed accumulation).
-// exit_hype needs shorting — excluded. buying_fear fires too early — loses money as longs.
 const PAPER_TRADEABLE = new Set(["smart_money_dip_buy"]);
 
 async function getPaperTrading(): Promise<PaperTradingResult> {
   const { data } = await supabase
     .from("intelligence_alerts")
-    .select("id, coin_id, alert_type, confidence, predicted_direction, price_at_detection, price_24h, price_48h, change_pct_24h, change_pct_48h, ts")
+    .select("id, coin_id, alert_type, confidence, predicted_direction, price_at_detection, price_24h, price_48h, price_72h, change_pct_24h, change_pct_48h, change_pct_72h, ts")
     .not("price_at_detection", "is", null)
     .not("checked_24h_at", "is", null)
     .order("ts", { ascending: true })
@@ -639,28 +645,48 @@ async function getPaperTrading(): Promise<PaperTradingResult> {
     if ((sig.confidence ?? 0) < PAPER_MIN_CONFIDENCE) continue;
     if (!sig.price_at_detection || !sig.price_24h) continue;
 
-    // SPOT-ONLY: all tradeable patterns are bullish = buy
+    // SPOT-ONLY: all positions are long (buy coin, sell later)
     const direction: "sell" | "buy" = "buy";
 
-    let exitPrice: number;
-    let exitReason: string;
+    let exitPrice: number = sig.price_24h; // fallback
+    let exitReason = "24h_close";
 
-    const change24 = (sig.change_pct_24h ?? 0) / 100;
-    // SPOT-ONLY: all positions are long (buy), stop loss when price drops
-    const hitStop = change24 < -PAPER_STOP_LOSS;
-
-    if (hitStop) {
+    // Check 24h: profit target or stop loss
+    const change24 = (sig.price_24h - sig.price_at_detection) / sig.price_at_detection;
+    if (change24 >= PAPER_PROFIT_TARGET) {
+      exitPrice = sig.price_24h;
+      exitReason = "24h_profit_target";
+    } else if (change24 <= -PAPER_STOP_LOSS) {
       exitPrice = sig.price_24h;
       exitReason = "24h_stop_loss";
-    } else if (sig.price_48h != null) {
-      exitPrice = sig.price_48h;
-      exitReason = "48h_close";
-    } else {
-      exitPrice = sig.price_24h;
-      exitReason = "24h_close";
     }
 
-    // SPOT-ONLY: all positions are long — profit when price goes UP
+    // Check 48h: profit target or stop loss
+    if (exitReason === "24h_close" && sig.price_48h != null) {
+      const change48 = (sig.price_48h - sig.price_at_detection) / sig.price_at_detection;
+      if (change48 >= PAPER_PROFIT_TARGET) {
+        exitPrice = sig.price_48h;
+        exitReason = "48h_profit_target";
+      } else if (change48 <= -PAPER_STOP_LOSS) {
+        exitPrice = sig.price_48h;
+        exitReason = "48h_stop_loss";
+      }
+    }
+
+    // Check 72h: mandatory close
+    if (exitReason === "24h_close" && sig.price_72h != null) {
+      exitPrice = sig.price_72h;
+      exitReason = "72h_close";
+    }
+
+    // Fallback — exitPrice already defaults to price_24h
+    // Upgrade to 48h if available and no earlier exit triggered
+    if (exitReason === "24h_close" && sig.price_48h != null) {
+      exitPrice = sig.price_48h;
+      exitReason = "48h_close";
+    }
+
+    // SPOT-ONLY: long position — profit when price goes UP
     const rawPnl = (exitPrice - sig.price_at_detection) / sig.price_at_detection;
 
     const fees = 2 * PAPER_FEE_PCT;

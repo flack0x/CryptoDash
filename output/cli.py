@@ -294,22 +294,28 @@ def _print_hit_rate():
         table.add_column("Signal Type", width=28)
         table.add_column("24h Rate", width=12, justify="center")
         table.add_column("48h Rate", width=12, justify="center")
+        table.add_column("72h Rate", width=12, justify="center")
         table.add_column("Signals", width=8, justify="center")
 
         overall_48 = rates.get("overall_48h", {})
+        overall_72 = rates.get("overall_72h", {})
         rate_24 = f"{overall.get('rate', 0):.0%}" if total > 0 else "---"
         rate_48 = f"{overall_48.get('rate', 0):.0%}" if overall_48.get("total", 0) > 0 else "---"
-        table.add_row("[bold]OVERALL[/bold]", rate_24, rate_48, str(total))
+        rate_72 = f"{overall_72.get('rate', 0):.0%}" if overall_72.get("total", 0) > 0 else "---"
+        table.add_row("[bold]OVERALL[/bold]", rate_24, rate_48, rate_72, str(total))
 
         by_type_24 = rates.get("by_type_24h", {})
         by_type_48 = rates.get("by_type_48h", {})
+        by_type_72 = rates.get("by_type_72h", {})
         for at in ["stealth_accumulation", "smart_money_buying_fear", "smart_money_dip_buy", "empty_hype", "smart_money_exit_hype"]:
             t24 = by_type_24.get(at, {})
             t48 = by_type_48.get(at, {})
+            t72 = by_type_72.get(at, {})
             r24 = f"{t24['rate']:.0%}" if t24.get("total", 0) > 0 else "---"
             r48 = f"{t48['rate']:.0%}" if t48.get("total", 0) > 0 else "---"
+            r72 = f"{t72['rate']:.0%}" if t72.get("total", 0) > 0 else "---"
             count = t24.get("total", 0)
-            table.add_row(at.replace("_", " ").title(), r24, r48, str(count))
+            table.add_row(at.replace("_", " ").title(), r24, r48, r72, str(count))
 
         console.print(table)
         console.print()

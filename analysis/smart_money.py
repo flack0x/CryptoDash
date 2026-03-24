@@ -53,6 +53,10 @@ def detect_smart_money_signals(window_hours: int = None) -> list[IntelligenceAle
     now = utcnow()
     window_td = timedelta(hours=window)
 
+    # Fetch current market mood for context recording on every alert
+    mood = db.get_latest_mood()
+    mood_value = mood.value if mood else None
+
     # Layer 1: Aggregate social data per coin
     social = _aggregate_social(now, window_td)
 
@@ -83,7 +87,8 @@ def detect_smart_money_signals(window_hours: int = None) -> list[IntelligenceAle
         mcap = market_caps.get(coin_id, 0)
         pct_change_24h = price_changes.get(coin_id)
         coin_alerts = _detect_patterns(coin_id, s, w, now, is_major=is_major,
-                                       market_cap=mcap, pct_change_24h=pct_change_24h)
+                                       market_cap=mcap, pct_change_24h=pct_change_24h,
+                                       mood_value=mood_value)
         alerts.extend(coin_alerts)
 
     alerts.sort(key=lambda a: a.confidence, reverse=True)
@@ -191,7 +196,7 @@ def _aggregate_whale_activity(now, window) -> dict:
     return dict(result)
 
 
-def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0, pct_change_24h=None) -> list[IntelligenceAlert]:
+def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0, pct_change_24h=None, mood_value=None) -> list[IntelligenceAlert]:
     alerts = []
 
     mentions = social["mentions"]
@@ -247,6 +252,7 @@ def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0, 
                 whale_direction="accumulating",
                 whale_entities=entities,
                 confidence=round(confidence, 3),
+                mood_at_detection=mood_value,
             ))
 
     # === EMPTY HYPE ===
@@ -273,6 +279,7 @@ def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0, 
                 whale_direction="neutral" if net_whale >= 0 else "dumping",
                 whale_entities=entities,
                 confidence=round(confidence, 3),
+                mood_at_detection=mood_value,
             ))
 
     # === SMART MONEY BUYING FEAR ===
@@ -329,6 +336,7 @@ def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0, 
                 whale_direction="dumping",
                 whale_entities=entities,
                 confidence=round(confidence, 3),
+                mood_at_detection=mood_value,
             ))
 
     # === SMART MONEY DIP BUY (SPOT-TRADEABLE BULLISH) ===

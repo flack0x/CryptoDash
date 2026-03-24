@@ -77,3 +77,7 @@ BUYING_FEAR_SENTIMENT = -0.1      # Was -0.2 — same reason, -0.1 IS genuinely 
 
 # Market-cap-relative whale threshold multiplier
 MCAP_WHALE_MULTIPLIER = 0.00005   # Was 0.001 (0.1%). Now 0.005%. Confidence formula handles proportionality
+
+# Paper trading exit rules
+PROFIT_TARGET_PCT = 0.05          # 5% profit target — lock in gains early
+STOP_LOSS_PCT = 0.08              # 8% stop-loss — limit damage

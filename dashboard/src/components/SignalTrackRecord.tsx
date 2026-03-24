@@ -55,7 +55,7 @@ export default function SignalTrackRecord({
       </button>
 
       {/* Summary cards — always visible */}
-      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
         <div className="rounded-md bg-gray-800/50 px-3 py-2 text-center">
           <div className="text-lg font-bold tabular-nums text-gray-100">
             {performance.hitRate24h !== null ? `${Math.round(performance.hitRate24h * 100)}%` : "—"}
@@ -67,6 +67,12 @@ export default function SignalTrackRecord({
             {performance.hitRate48h !== null ? `${Math.round(performance.hitRate48h * 100)}%` : "—"}
           </div>
           <div className="text-xs text-gray-500">48h Hit Rate</div>
+        </div>
+        <div className="rounded-md bg-gray-800/50 px-3 py-2 text-center">
+          <div className="text-lg font-bold tabular-nums text-gray-100">
+            {performance.hitRate72h !== null ? `${Math.round(performance.hitRate72h * 100)}%` : "—"}
+          </div>
+          <div className="text-xs text-gray-500">72h Hit Rate</div>
         </div>
         <div className="rounded-md bg-gray-800/50 px-3 py-2 text-center">
           <div className="text-lg font-bold tabular-nums text-gray-100">
@@ -89,7 +95,7 @@ export default function SignalTrackRecord({
             <div className="rounded-md bg-green-900/30 border border-green-800/50 px-3 py-1.5 flex items-center justify-between">
               <span className="text-xs text-green-400 font-medium">Dip Buy</span>
               <span className="text-xs text-gray-300 tabular-nums">
-                {performance.dipBuy24h !== null ? `${Math.round(performance.dipBuy24h * 100)}%` : "—"} / {performance.dipBuy48h !== null ? `${Math.round(performance.dipBuy48h * 100)}%` : "—"}
+                {performance.dipBuy24h !== null ? `${Math.round(performance.dipBuy24h * 100)}%` : "—"} / {performance.dipBuy48h !== null ? `${Math.round(performance.dipBuy48h * 100)}%` : "—"} / {performance.dipBuy72h !== null ? `${Math.round(performance.dipBuy72h * 100)}%` : "—"}
                 <span className="text-gray-500 ml-1">({performance.dipBuyCount})</span>
               </span>
             </div>
@@ -98,7 +104,7 @@ export default function SignalTrackRecord({
             <div className="rounded-md bg-gray-800/30 px-3 py-1.5 flex items-center justify-between">
               <span className="text-xs text-red-400 font-medium">Exit Hype</span>
               <span className="text-xs text-gray-300 tabular-nums">
-                {performance.exitHype24h !== null ? `${Math.round(performance.exitHype24h * 100)}%` : "—"} / {performance.exitHype48h !== null ? `${Math.round(performance.exitHype48h * 100)}%` : "—"}
+                {performance.exitHype24h !== null ? `${Math.round(performance.exitHype24h * 100)}%` : "—"} / {performance.exitHype48h !== null ? `${Math.round(performance.exitHype48h * 100)}%` : "—"} / {performance.exitHype72h !== null ? `${Math.round(performance.exitHype72h * 100)}%` : "—"}
                 <span className="text-gray-500 ml-1">({performance.exitHypeCount})</span>
               </span>
             </div>
@@ -107,7 +113,7 @@ export default function SignalTrackRecord({
             <div className="rounded-md bg-gray-800/30 px-3 py-1.5 flex items-center justify-between">
               <span className="text-xs text-blue-400 font-medium">Buying Fear</span>
               <span className="text-xs text-gray-300 tabular-nums">
-                {performance.buyingFear24h !== null ? `${Math.round(performance.buyingFear24h * 100)}%` : "—"} / {performance.buyingFear48h !== null ? `${Math.round(performance.buyingFear48h * 100)}%` : "—"}
+                {performance.buyingFear24h !== null ? `${Math.round(performance.buyingFear24h * 100)}%` : "—"} / {performance.buyingFear48h !== null ? `${Math.round(performance.buyingFear48h * 100)}%` : "—"} / {performance.buyingFear72h !== null ? `${Math.round(performance.buyingFear72h * 100)}%` : "—"}
                 <span className="text-gray-500 ml-1">({performance.buyingFearCount})</span>
               </span>
             </div>
@@ -127,7 +133,8 @@ export default function SignalTrackRecord({
                 <th className="pb-2 pr-3 font-medium">Predicted</th>
                 <th className="pb-2 pr-3 text-right font-medium">Price@Detect</th>
                 <th className="pb-2 pr-3 text-right font-medium">24h</th>
-                <th className="pb-2 text-right font-medium">48h</th>
+                <th className="pb-2 pr-3 text-right font-medium">48h</th>
+                <th className="pb-2 text-right font-medium">72h</th>
               </tr>
             </thead>
             <tbody>
@@ -162,10 +169,16 @@ export default function SignalTrackRecord({
                         {" "}{resultIcon(s.direction_correct_24h)}
                       </span>
                     </td>
-                    <td className="py-1.5 text-right text-xs">
+                    <td className="py-1.5 pr-3 text-right text-xs">
                       <span className={resultColor(s.direction_correct_48h)}>
                         {s.change_pct_48h !== null ? formatPercent(s.change_pct_48h) : "—"}
                         {" "}{resultIcon(s.direction_correct_48h)}
+                      </span>
+                    </td>
+                    <td className="py-1.5 text-right text-xs">
+                      <span className={resultColor(s.direction_correct_72h)}>
+                        {s.change_pct_72h !== null ? formatPercent(s.change_pct_72h) : "—"}
+                        {" "}{resultIcon(s.direction_correct_72h)}
                       </span>
                     </td>
                   </tr>
