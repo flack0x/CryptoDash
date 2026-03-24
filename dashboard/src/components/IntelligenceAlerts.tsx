@@ -24,6 +24,12 @@ const typeLabels: Record<string, { label: string; icon: string; color: string; d
     color: "text-cyan-400",
     description: "Whales accumulating during negative sentiment",
   },
+  smart_money_dip_buy: {
+    label: "Confirmed Dip Buy",
+    icon: "B",
+    color: "text-green-400",
+    description: "Persistent whale accumulation during confirmed price dip — BUY signal",
+  },
   smart_money_exit_hype: {
     label: "Smart $ Exiting",
     icon: "X",
@@ -59,6 +65,11 @@ function buildSignalDescription(alert: EnrichedAlert): string {
   if (alert.alert_type === "smart_money_buying_fear") {
     const usdStr = whaleUsd ? `$${(whaleUsd / 1_000_000).toFixed(1)}M` : "";
     return `Whales buying ${usdStr} during negative sentiment (score: ${(alert.social_sentiment ?? 0).toFixed(2)})`;
+  }
+
+  if (alert.alert_type === "smart_money_dip_buy") {
+    const usdStr = whaleUsd ? `$${(whaleUsd / 1_000_000).toFixed(1)}M` : "";
+    return `Confirmed: whales persistently buying ${usdStr} during price dip — BUY signal for spot trading`;
   }
 
   if (alert.alert_type === "smart_money_exit_hype") {

@@ -133,12 +133,13 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 
 ## Smart Money Intelligence Engine
 
-`analysis/smart_money.py` cross-references whale activity vs social sentiment to detect 4 patterns:
+`analysis/smart_money.py` cross-references whale activity vs social sentiment to detect 5 patterns:
 
 1. **stealth_accumulation** — whales buying, crowd not talking about it (bullish signal)
 2. **empty_hype** — crowd hyping, no whale backing (bearish/caution signal)
-3. **smart_money_buying_fear** — whales buying during fear/dips (contrarian bullish)
+3. **smart_money_buying_fear** — whales buying during fear/dips (contrarian bullish, fires first)
 4. **smart_money_exit_hype** — whales selling during euphoria (contrarian bearish)
+5. **smart_money_dip_buy** — **SPOT-TRADEABLE BULLISH**: whales persistently buying during confirmed >5% dip, with temporal confirmation (prior buying_fear 8-48h ago). Requires 2+ entities. Confidence capped at 85%. This is the primary signal for spot trading (buy low, sell high).
 
 ### Tuning & Filters
 - **Stablecoins excluded**: USDT, USDC, DAI, etc. never generate alerts (stablecoin movements aren't position signals)
@@ -157,10 +158,11 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **Outcome checker** (`analysis/outcomes.py`): Runs every `python main.py` execution. Finds alerts >24h/48h old, looks up closest price snapshot (±2h window, widens to ±6h if overdue), evaluates if price moved in predicted direction beyond ±0.5% neutral band
 - **Hit rate computation**: `compute_hit_rates()` returns overall and per-type rates at 24h and 48h windows
 - **CLI display**: Hit rate table appears in terminal output when evaluated outcomes exist
-- **Direction semantics**: stealth_accumulation/buying_fear = bullish (price should go UP), empty_hype/exit_hype = bearish (price should go DOWN)
+- **Direction semantics**: stealth_accumulation/buying_fear/dip_buy = bullish (price should go UP), empty_hype/exit_hype = bearish (price should go DOWN)
 - **DB columns on `intelligence_alerts`**: price_at_detection, predicted_direction, price_24h, price_48h, change_pct_24h, change_pct_48h, direction_correct_24h, direction_correct_48h, checked_24h_at, checked_48h_at
-- **Current hit rates (as of 2026-03-19, 24 evaluated)**: Overall 29% at 24h, 35% at 48h. **exit_hype is the ONLY working pattern**: 50% at 24h, 55% at 48h (75% excl tainted LINK data). **buying_fear is 0/10 at 24h, 0/6 at 48h** — fundamentally broken, detects falling knives not bottoms. stealth_accumulation and empty_hype have 0 signals so far.
-- **Paper trading simulator** (`analysis/paper_trading.py`): Simulates $1,000 trades on all evaluated exit_hype signals. Rules: 0.1% fee/side (0.2% round trip), 8% stop-loss checked at 24h, close at 48h. Only trades `smart_money_exit_hype` (only pattern with positive hit rate). Outputs total P&L, win rate, profit factor, max drawdown, per-trade log with cumulative equity curve. Runs after outcome checks in every `main.py` execution. Dashboard shows same data via `PaperTrading.tsx`. **Dashboard uses "SELL"/"BUY" labels** (spot trading terminology, not futures "SHORT"/"LONG").
+- **Current hit rates (as of 2026-03-24, 9 deduped signals)**: Overall **56% at 24h, 56% at 48h**. exit_hype: **57%/57%** (7 signals). buying_fear: **50%/50%** (2 signals). dip_buy: new, 0 signals yet. Dashboard deduplicates by coin+type keeping most recent (ts DESC).
+- **Paper trading simulator** (`analysis/paper_trading.py`): **SPOT-ONLY MODE** — simulates $1,000 BUY trades on bullish signals (dip_buy, buying_fear, stealth_accumulation). Does NOT trade exit_hype (requires shorting, not available in spot). Rules: 0.1% fee/side (0.2% round trip), 8% stop-loss checked at 24h, close at 48h. Outputs total P&L, win rate, profit factor, max drawdown, per-trade log with cumulative equity curve. Runs after outcome checks in every `main.py` execution. Dashboard shows same data via `PaperTrading.tsx`. **Dashboard uses "BUY" labels** (spot trading terminology).
+- **smart_money_dip_buy**: The primary spot-tradeable signal. Requires: (1) whale net buying > mcap-relative threshold, (2) 2+ independent entities buying, (3) price_change_24h < -5% (coin already in real dip), (4) prior buying_fear alert exists 8-48h ago (temporal confirmation = persistent accumulation). Confidence capped at 85%. Predicted direction: bullish. **This is what you trade with real money in spot markets.**
 
 ### Dashboard Data Quality Filters
 - **Intelligence Alerts**: **4-hour window** (not 24h) — alerts must be re-detected by recent analysis runs to stay visible. Stale/false alerts disappear within 4 hours instead of lingering for a full day. NO fallback to old alerts. Enriched with price data (price, 24h change, market cap) via `EnrichedAlert` type. Only shows coins in CoinGecko top 250 with proper names. **Expandable cards** show full brief, whale entity breakdown (per-entity net USD), social context, predicted direction.
@@ -330,7 +332,7 @@ CryptoDash/
 ├── analysis/                # Intelligence engine
 │   ├── smart_money.py       # Core: whale vs social cross-reference (TRACKABLE_COINS, stablecoin exclusion, major coin thresholds)
 │   ├── outcomes.py          # Signal performance tracking: 24h/48h price checks, hit rate computation
-│   ├── paper_trading.py     # Paper trading simulator: P&L from exit_hype signals ($1K/trade, 8% stop-loss)
+│   ├── paper_trading.py     # Paper trading simulator: SPOT-ONLY, P&L from bullish signals ($1K/trade, 8% stop-loss)
 │   ├── sentiment.py         # VADER sentiment + coin extraction
 │   ├── summary.py           # Bulk coin fetch helpers
 │   ├── divergence.py        # Signal divergence detection

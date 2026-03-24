@@ -67,6 +67,9 @@ def detect_smart_money_signals(window_hours: int = None) -> list[IntelligenceAle
     whale_coins = [c for c in all_coins if c in whale and not c.startswith("_") and not c.startswith("dex:")]
     market_caps = db.get_latest_market_caps(whale_coins) if whale_coins else {}
 
+    # Bulk fetch 24h price changes for whale-active coins (needed for dip_buy pattern)
+    price_changes = db.get_latest_price_changes(whale_coins) if whale_coins else {}
+
     for coin_id in all_coins:
         if coin_id.startswith("_") or coin_id.startswith("dex:"):
             continue
@@ -78,7 +81,9 @@ def detect_smart_money_signals(window_hours: int = None) -> list[IntelligenceAle
 
         is_major = coin_id in MAJOR_COINS
         mcap = market_caps.get(coin_id, 0)
-        coin_alerts = _detect_patterns(coin_id, s, w, now, is_major=is_major, market_cap=mcap)
+        pct_change_24h = price_changes.get(coin_id)
+        coin_alerts = _detect_patterns(coin_id, s, w, now, is_major=is_major,
+                                       market_cap=mcap, pct_change_24h=pct_change_24h)
         alerts.extend(coin_alerts)
 
     alerts.sort(key=lambda a: a.confidence, reverse=True)
@@ -186,7 +191,7 @@ def _aggregate_whale_activity(now, window) -> dict:
     return dict(result)
 
 
-def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0) -> list[IntelligenceAlert]:
+def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0, pct_change_24h=None) -> list[IntelligenceAlert]:
     alerts = []
 
     mentions = social["mentions"]
@@ -325,6 +330,65 @@ def _detect_patterns(coin_id, social, whale, now, is_major=False, market_cap=0) 
                 whale_entities=entities,
                 confidence=round(confidence, 3),
             ))
+
+    # === SMART MONEY DIP BUY (SPOT-TRADEABLE BULLISH) ===
+    # Whales persistently buying a coin that's already in a real dip.
+    # This is the REFINED buying signal for spot trading (buy low, sell high).
+    #
+    # Key learnings applied:
+    # - buying_fear fired too early = catching falling knives (95% conf all wrong)
+    # - Late low-confidence buying_fear signals were CORRECT (FET +9.7% at 48h)
+    # - Fix: require TEMPORAL CONFIRMATION (prior buying_fear exists = persistent accumulation)
+    # - Fix: require PRICE ALREADY DOWN > 5% (we're in a real dip, not early decline)
+    # - Fix: require 2+ independent entities (not single treasury ops)
+    if (net_whale > min_usd and pct_change_24h is not None and pct_change_24h < -5.0):
+        # Count independent buying entities
+        buying_entities = [e for e in entities if e["net_usd"] > 0]
+        buying_entity_count = len(buying_entities)
+
+        if buying_entity_count >= 2:
+            # Check temporal confirmation: prior buying_fear alert exists for this coin
+            # in the 8-48h window (means whales were ALREADY buying before this run)
+            prior_window = now - timedelta(hours=48)
+            prior_cutoff = now - timedelta(hours=8)  # Must be at least 8h old
+            prior_alerts = db.get_intelligence_alerts_for_coin(
+                coin_id, "smart_money_buying_fear", prior_window
+            )
+            # Also check for prior dip_buy signals
+            prior_dip_alerts = db.get_intelligence_alerts_for_coin(
+                coin_id, "smart_money_dip_buy", prior_window
+            )
+            has_prior = any(
+                a["ts"] < prior_cutoff.isoformat() for a in (prior_alerts + prior_dip_alerts)
+            )
+
+            if has_prior:
+                # Single-entity dominance discount (same as buying_fear)
+                top_buyer_pct = (buying_entities[0]["net_usd"] / buy_usd) if buy_usd > 0 else 1.0
+                entity_diversity = min(1.0, buying_entity_count / 3)
+                if top_buyer_pct > 0.80:
+                    entity_diversity *= 0.5
+
+                # Confidence: deeper dip + more whale buying = higher confidence
+                dip_factor = min(1.0, abs(pct_change_24h) / 15.0)  # -15% dip = full factor
+                confidence = min(0.85, dip_factor * (net_whale / exit_fear_denom))
+                confidence *= entity_diversity
+                # Cap at 0.85 — never go to 95% (COMP lesson)
+                if confidence >= 0.15:
+                    alerts.append(IntelligenceAlert(
+                        timestamp=now,
+                        alert_type="smart_money_dip_buy",
+                        coin_id=coin_id,
+                        severity=_severity(confidence),
+                        headline=f"Confirmed dip buy: whales persistently accumulating {coin_id} during -{abs(pct_change_24h):.1f}% dip",
+                        social_mentions=mentions,
+                        social_sentiment=sentiment,
+                        social_avg_mentions=avg_mentions,
+                        whale_volume_usd=net_whale,
+                        whale_direction="accumulating",
+                        whale_entities=entities,
+                        confidence=round(confidence, 3),
+                    ))
 
     return alerts
 

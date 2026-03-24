@@ -164,6 +164,27 @@ def get_latest_market_caps(coin_ids: list[str]) -> dict[str, float]:
     return caps
 
 
+def get_latest_price_changes(coin_ids: list[str]) -> dict[str, float]:
+    """Bulk fetch latest price_change_24h for a list of coins. Returns {coin_id: pct_change}."""
+    if not coin_ids:
+        return {}
+    client = get_client()
+    result = (
+        client.table("snapshots")
+        .select("coin_id, price_change_24h")
+        .in_("coin_id", coin_ids)
+        .not_.is_("price_change_24h", "null")
+        .order("ts", desc=True)
+        .limit(len(coin_ids) * 2)
+        .execute()
+    )
+    changes = {}
+    for r in result.data or []:
+        if r["coin_id"] not in changes and r["price_change_24h"] is not None:
+            changes[r["coin_id"]] = r["price_change_24h"]
+    return changes
+
+
 def get_latest_prices(coin_ids: list[str]) -> dict[str, float]:
     """Bulk fetch latest price_usd for a list of coins. Returns {coin_id: price_usd}."""
     if not coin_ids:
@@ -642,6 +663,7 @@ def _row_to_whale_tx(r: dict) -> WhaleTransaction:
 DIRECTION_MAP = {
     "stealth_accumulation": "bullish",
     "smart_money_buying_fear": "bullish",
+    "smart_money_dip_buy": "bullish",
     "empty_hype": "bearish",
     "smart_money_exit_hype": "bearish",
 }

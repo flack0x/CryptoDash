@@ -576,11 +576,15 @@ async function getSignalPerformance(): Promise<SignalPerformance> {
   const exitHype48 = [...evalMap48.entries()].filter(([k]) => k.endsWith(":smart_money_exit_hype"));
   const buyFear24 = [...evalMap24.entries()].filter(([k]) => k.endsWith(":smart_money_buying_fear"));
   const buyFear48 = [...evalMap48.entries()].filter(([k]) => k.endsWith(":smart_money_buying_fear"));
+  const dipBuy24 = [...evalMap24.entries()].filter(([k]) => k.endsWith(":smart_money_dip_buy"));
+  const dipBuy48 = [...evalMap48.entries()].filter(([k]) => k.endsWith(":smart_money_dip_buy"));
 
   const ehCorrect24 = exitHype24.filter(([, v]) => v).length;
   const ehCorrect48 = exitHype48.filter(([, v]) => v).length;
   const bfCorrect24 = buyFear24.filter(([, v]) => v).length;
   const bfCorrect48 = buyFear48.filter(([, v]) => v).length;
+  const dbCorrect24 = dipBuy24.filter(([, v]) => v).length;
+  const dbCorrect48 = dipBuy48.filter(([, v]) => v).length;
 
   return {
     total24h,
@@ -596,6 +600,9 @@ async function getSignalPerformance(): Promise<SignalPerformance> {
     buyingFear24h: buyFear24.length > 0 ? bfCorrect24 / buyFear24.length : null,
     buyingFear48h: buyFear48.length > 0 ? bfCorrect48 / buyFear48.length : null,
     buyingFearCount: buyFear24.length,
+    dipBuy24h: dipBuy24.length > 0 ? dbCorrect24 / dipBuy24.length : null,
+    dipBuy48h: dipBuy48.length > 0 ? dbCorrect48 / dipBuy48.length : null,
+    dipBuyCount: dipBuy24.length,
   };
 }
 
@@ -606,7 +613,9 @@ const PAPER_POSITION_SIZE = 1000;   // $1000 per trade
 const PAPER_FEE_PCT = 0.001;       // 0.1% per side
 const PAPER_STOP_LOSS = 0.08;      // 8% stop-loss
 const PAPER_MIN_CONFIDENCE = 0.15;
-const PAPER_TRADEABLE = new Set(["smart_money_exit_hype"]);
+// SPOT-ONLY: Only trade BULLISH patterns (buy coin, sell later for profit).
+// exit_hype is bearish (needs shorting) — excluded from spot paper trading.
+const PAPER_TRADEABLE = new Set(["smart_money_dip_buy", "smart_money_buying_fear", "stealth_accumulation"]);
 
 async function getPaperTrading(): Promise<PaperTradingResult> {
   const { data } = await supabase
@@ -630,16 +639,15 @@ async function getPaperTrading(): Promise<PaperTradingResult> {
     if ((sig.confidence ?? 0) < PAPER_MIN_CONFIDENCE) continue;
     if (!sig.price_at_detection || !sig.price_24h) continue;
 
-    const direction: "sell" | "buy" = (sig.alert_type === "smart_money_exit_hype" || sig.alert_type === "empty_hype")
-      ? "sell" : "buy";
+    // SPOT-ONLY: all tradeable patterns are bullish = buy
+    const direction: "sell" | "buy" = "buy";
 
     let exitPrice: number;
     let exitReason: string;
 
     const change24 = (sig.change_pct_24h ?? 0) / 100;
-    const hitStop = direction === "sell"
-      ? change24 > PAPER_STOP_LOSS
-      : change24 < -PAPER_STOP_LOSS;
+    // SPOT-ONLY: all positions are long (buy), stop loss when price drops
+    const hitStop = change24 < -PAPER_STOP_LOSS;
 
     if (hitStop) {
       exitPrice = sig.price_24h;
@@ -652,9 +660,8 @@ async function getPaperTrading(): Promise<PaperTradingResult> {
       exitReason = "24h_close";
     }
 
-    const rawPnl = direction === "sell"
-      ? -(exitPrice - sig.price_at_detection) / sig.price_at_detection
-      : (exitPrice - sig.price_at_detection) / sig.price_at_detection;
+    // SPOT-ONLY: all positions are long — profit when price goes UP
+    const rawPnl = (exitPrice - sig.price_at_detection) / sig.price_at_detection;
 
     const fees = 2 * PAPER_FEE_PCT;
     const netPnlPct = rawPnl - fees;

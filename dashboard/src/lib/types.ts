@@ -116,6 +116,9 @@ export interface SignalPerformance {
   buyingFear24h: number | null;
   buyingFear48h: number | null;
   buyingFearCount: number;
+  dipBuy24h: number | null;
+  dipBuy48h: number | null;
+  dipBuyCount: number;
 }
 
 export interface EvaluatedSignal {

@@ -20,6 +20,11 @@ TEMPLATES = {
         "({sentiment:.2f}), but {entities_summary} accumulated ${whale_volume:,.0f} "
         "in the last {window}h. {history_note}"
     ),
+    "smart_money_dip_buy": (
+        "CONFIRMED DIP BUY: {entities_summary} persistently accumulating "
+        "${whale_volume:,.0f} of {coin_upper} during price dip. "
+        "Whale buying confirmed across multiple analysis runs. {history_note}"
+    ),
     "smart_money_exit_hype": (
         "SMART MONEY EXIT: While crowd sentiment for {coin_upper} is positive "
         "({sentiment:+.2f}), {entities_summary} moved ${whale_volume:,.0f} toward "

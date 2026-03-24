@@ -5,7 +5,8 @@ Takes all evaluated intelligence alerts and simulates trades with realistic rule
 - Exit at 48h (or 24h stop-loss if exceeded)
 - Fees per side (0.1% = 0.2% round trip)
 - Position sizing ($1000 default)
-- Only trades patterns/confidence above threshold
+- SPOT-ONLY MODE: Only trades BULLISH signals (buy low, sell high)
+  exit_hype is bearish (requires shorting) — not tradeable in spot.
 
 This is NOT backtesting on historical data — it's forward-testing on live signals
 that the system generated in real-time.
@@ -24,8 +25,11 @@ POSITION_SIZE_USD = 1000      # dollars per trade
 FEE_PCT = 0.001               # 0.1% per side (Binance/Coinbase tier 1)
 STOP_LOSS_PCT = 0.08          # 8% stop-loss (exit at 24h if exceeded)
 MIN_CONFIDENCE = 0.15         # minimum confidence to trade (match alert threshold)
-# Which patterns to trade — exit_hype is the ONLY pattern with positive hit rate
-TRADEABLE_PATTERNS = {"smart_money_exit_hype"}
+# SPOT-ONLY: Only trade BULLISH patterns (buy coin, sell later for profit).
+# exit_hype is bearish (needs shorting) — excluded.
+# dip_buy is the primary spot-tradeable signal (temporally confirmed accumulation).
+# buying_fear and stealth_accumulation also bullish but lower quality.
+TRADEABLE_PATTERNS = {"smart_money_dip_buy", "smart_money_buying_fear", "stealth_accumulation"}
 
 
 @dataclass
@@ -118,11 +122,8 @@ def _simulate_single(sig: dict) -> PaperTrade | None:
     if not entry_price or not price_24h:
         return None
 
-    # Direction: exit_hype/empty_hype = short, stealth_acc/buying_fear = long
-    if alert_type in ("smart_money_exit_hype", "empty_hype"):
-        direction = "short"
-    else:
-        direction = "long"
+    # SPOT-ONLY: all tradeable patterns are BULLISH = long (buy coin, sell later)
+    direction = "long"
 
     # Check 24h stop-loss
     exit_price = None

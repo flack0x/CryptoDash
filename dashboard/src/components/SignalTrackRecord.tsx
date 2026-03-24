@@ -8,6 +8,7 @@ const typeLabels: Record<string, string> = {
   stealth_accumulation: "Stealth Accum",
   empty_hype: "Empty Hype",
   smart_money_buying_fear: "Buying Fear",
+  smart_money_dip_buy: "Dip Buy",
   smart_money_exit_hype: "Smart $ Exit",
 };
 
@@ -82,8 +83,17 @@ export default function SignalTrackRecord({
       </div>
 
       {/* Per-pattern breakdown */}
-      {(performance.exitHypeCount > 0 || performance.buyingFearCount > 0) && (
+      {(performance.exitHypeCount > 0 || performance.buyingFearCount > 0 || performance.dipBuyCount > 0) && (
         <div className="mt-2 grid grid-cols-2 gap-3">
+          {performance.dipBuyCount > 0 && (
+            <div className="rounded-md bg-green-900/30 border border-green-800/50 px-3 py-1.5 flex items-center justify-between">
+              <span className="text-xs text-green-400 font-medium">Dip Buy</span>
+              <span className="text-xs text-gray-300 tabular-nums">
+                {performance.dipBuy24h !== null ? `${Math.round(performance.dipBuy24h * 100)}%` : "—"} / {performance.dipBuy48h !== null ? `${Math.round(performance.dipBuy48h * 100)}%` : "—"}
+                <span className="text-gray-500 ml-1">({performance.dipBuyCount})</span>
+              </span>
+            </div>
+          )}
           {performance.exitHypeCount > 0 && (
             <div className="rounded-md bg-gray-800/30 px-3 py-1.5 flex items-center justify-between">
               <span className="text-xs text-red-400 font-medium">Exit Hype</span>

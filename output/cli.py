@@ -303,7 +303,7 @@ def _print_hit_rate():
 
         by_type_24 = rates.get("by_type_24h", {})
         by_type_48 = rates.get("by_type_48h", {})
-        for at in ["stealth_accumulation", "smart_money_buying_fear", "empty_hype", "smart_money_exit_hype"]:
+        for at in ["stealth_accumulation", "smart_money_buying_fear", "smart_money_dip_buy", "empty_hype", "smart_money_exit_hype"]:
             t24 = by_type_24.get(at, {})
             t48 = by_type_48.get(at, {})
             r24 = f"{t24['rate']:.0%}" if t24.get("total", 0) > 0 else "---"
@@ -340,7 +340,7 @@ def print_paper_trading(result):
             f"Max Drawdown: [red]-${result.max_drawdown_usd:.2f}[/red]  "
             f"Best: [green]+{result.best_trade_pct:.2f}%[/green]  "
             f"Worst: [red]{result.worst_trade_pct:.2f}%[/red]",
-            title="[bold]Paper Trading ($1,000/trade, exit_hype only)[/bold]",
+            title="[bold]Paper Trading ($1,000/trade, spot-only bullish signals)[/bold]",
             border_style="bold green" if result.total_pnl_usd >= 0 else "bold red",
         )
     )
