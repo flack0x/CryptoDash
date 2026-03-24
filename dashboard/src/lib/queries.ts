@@ -613,9 +613,9 @@ const PAPER_POSITION_SIZE = 1000;   // $1000 per trade
 const PAPER_FEE_PCT = 0.001;       // 0.1% per side
 const PAPER_STOP_LOSS = 0.08;      // 8% stop-loss
 const PAPER_MIN_CONFIDENCE = 0.15;
-// SPOT-ONLY: Only trade BULLISH patterns (buy coin, sell later for profit).
-// exit_hype is bearish (needs shorting) — excluded from spot paper trading.
-const PAPER_TRADEABLE = new Set(["smart_money_dip_buy", "smart_money_buying_fear", "stealth_accumulation"]);
+// SPOT-ONLY: Only trade dip_buy (temporally confirmed accumulation).
+// exit_hype needs shorting — excluded. buying_fear fires too early — loses money as longs.
+const PAPER_TRADEABLE = new Set(["smart_money_dip_buy"]);
 
 async function getPaperTrading(): Promise<PaperTradingResult> {
   const { data } = await supabase

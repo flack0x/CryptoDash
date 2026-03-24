@@ -27,9 +27,9 @@ STOP_LOSS_PCT = 0.08          # 8% stop-loss (exit at 24h if exceeded)
 MIN_CONFIDENCE = 0.15         # minimum confidence to trade (match alert threshold)
 # SPOT-ONLY: Only trade BULLISH patterns (buy coin, sell later for profit).
 # exit_hype is bearish (needs shorting) — excluded.
-# dip_buy is the primary spot-tradeable signal (temporally confirmed accumulation).
-# buying_fear and stealth_accumulation also bullish but lower quality.
-TRADEABLE_PATTERNS = {"smart_money_dip_buy", "smart_money_buying_fear", "stealth_accumulation"}
+# buying_fear is broken — 9% at 24h, fires too early, loses money as long positions.
+# dip_buy is the ONLY spot-tradeable signal (temporally confirmed accumulation).
+TRADEABLE_PATTERNS = {"smart_money_dip_buy"}
 
 
 @dataclass

@@ -5,6 +5,7 @@ import type { PaperTradingResult } from "@/lib/types";
 import { formatPrice } from "@/lib/format";
 
 const typeLabels: Record<string, string> = {
+  smart_money_dip_buy: "Dip Buy",
   smart_money_exit_hype: "Exit Hype",
   smart_money_buying_fear: "Buying Fear",
   stealth_accumulation: "Stealth Accum",
@@ -35,7 +36,7 @@ export default function PaperTrading({ data }: { data: PaperTradingResult }) {
         <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-400">
           Paper Trading
           <span className="ml-2 text-xs font-normal text-gray-500">
-            $1,000/trade &middot; exit_hype only
+            $1,000/trade &middot; spot only (dip_buy)
           </span>
         </h2>
         <span className="text-xs text-gray-500">{expanded ? "collapse" : "expand"}</span>
