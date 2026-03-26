@@ -68,7 +68,7 @@ git add -A && git commit -m "message" && git push
 - All secrets stored as GitHub repository secrets (SUPABASE_URL, SUPABASE_SERVICE_KEY, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, ETHERSCAN_API_KEY)
 - Manual trigger: `gh workflow run collect.yml` or from GitHub UI
 - Each run: installs deps (pip cached), runs all collectors + analysis + outcome checks (~10-11 min total)
-- **Confirmed working as of 2026-03-26** (health-check ~20:15 UTC): 10/10 latest runs succeeded (8-10 min each). 39 signals total (32 evaluated, 7 pending). exit_hype: 43%/63%/69% at 24h/48h/72h (73%/85% at 48h/72h excl LINK, 79%/92% excl LINK+COMP). **Bounce-back pattern confirmed 3/3**: signals wrong at 24h but correct at 48h. buying_fear: 9%/27%/18%. dip_buy: 0 signals. DB stats: 1,710 coins, 93,250 snapshots, 111,769 social signals, 9,650 whale txs, 263 alerts, 105 wallets, 13,055 trending, 87,724 on-chain, 372 mood. Market mood: 10 (Extreme Fear, down from 14). BTC: $68,444.
+- **Confirmed working as of 2026-03-27** (wallet expansion deployed ~22:00 UTC Mar 26): Wallet coverage expanded 96→121 (JSON) / 105→136 (DB). +31 new smart money wallets (Galaxy Digital x7, GSR, Amber Group x2, B2C2, Auros, ParaFi x2, FalconX, Maven 11 x2, Arca, DeFiance x3, Spartan, Matrixport, Nascent x2, Fasanara, IVC, HashKey, Framework, Variant, Animoca). -6 dead entities (FTX, Alameda x4, 3AC). Smart money entities: 12→32 (2.7x). Commit 30881dc. 2 successful runs post-deploy. Whale txs: 9,650→9,974 (+324). exit_hype: 43%/63%/69% at 24h/48h/72h (73%/85% excl LINK, 79%/92% excl LINK+COMP). **Bounce-back pattern confirmed 3/3**. buying_fear: 9%/27%/18%. dip_buy: 0 signals. Market mood: 10 (Extreme Fear). BTC: $68,444.
 
 ### Local Daemon Mode (backup — only if needed)
 - `python main.py --daemon` or `start_collector.bat` / `stop_collector.bat`
@@ -122,7 +122,7 @@ Same env vars are set in Vercel project settings for production builds.
 | `social_signals` | Social mentions + sentiment per coin per source |
 | `on_chain` | DeFi protocol TVL data |
 | `narratives` | Narrative themes + momentum scores |
-| `tracked_wallets` | 105 whale wallet addresses being monitored (96 from JSON + 9 pre-existing) |
+| `tracked_wallets` | 136 whale wallet addresses being monitored (121 from JSON + 15 pre-existing) |
 | `whale_transactions` | Detected whale token movements (>= $10K, valued only) |
 | `intelligence_alerts` | Smart money signals + outcome tracking (price_at_detection, 24h/48h prices, direction_correct) |
 | `dev_activity` | GitHub dev activity (unused, 0 rows) |
@@ -225,7 +225,7 @@ Schema in `supabase/migrations/`. RLS enabled on all tables with public SELECT p
 - **Whale transaction duplicates on dashboard**: Same blockchain tx collected multiple times showed as duplicates. Fixed in `queries.ts`: dedup by `wallet_address + token_symbol + amount + direction` key.
 - **Stablecoins in Social Buzz**: USDC/USDT/DAI etc. appeared in Social Buzz with "Bullish"/"Very Bullish" sentiment — meaningless noise. Fixed: added `STABLECOIN_COIN_IDS` filter to `getSocialBuzz()` in `queries.ts`. Stablecoins were already filtered from Whale Activity and Intelligence Alerts but not Social Buzz.
 - **False empty hype for non-ETH tokens**: Empty hype alerts fired for HYPE (Hyperliquid L1), DOT (Polkadot), etc. saying "no whale buying detected" — but we only track Ethereum wallets, so this was "we're blind" not "nobody's buying." Fixed: added `TRACKABLE_COINS` set to `smart_money.py`, empty hype only fires for ERC-20 tokens in our `TOKEN_SYMBOL_MAP`.
-- **Whale tracker only checked 20/50 wallets per run**: `wallets[:20]` limit meant it took 3 runs (~1.5 hours) to check all wallets. Fixed: now checks ALL wallets every run. At 0.35s/call, 105 wallets = ~37 seconds, well within GitHub Actions budget.
+- **Whale tracker only checked 20/50 wallets per run**: `wallets[:20]` limit meant it took 3 runs (~1.5 hours) to check all wallets. Fixed: now checks ALL wallets every run. At 0.35s/call, 121 wallets = ~42 seconds, well within GitHub Actions budget.
 - **New wallets not loading to DB**: `seed_wallets()` in `main.py` required `--seed-wallets` flag. GitHub Actions runs `python main.py` without flags, so new wallets added to `whale_wallets.json` never loaded. Fixed: `seed_wallets()` now runs automatically on every startup (upsert is safe — `ON CONFLICT DO NOTHING` on address+chain). `--seed-wallets` flag still works but exits after seeding without running collectors.
 - **Stealth accumulation false confidence from zero social baseline**: Coins with NO social data (avg_mentions=0) automatically got 95% CRITICAL stealth accumulation alerts. "No mentions" meant "we're blind" not "the crowd hasn't noticed." Fixed: confidence now scaled by `social_visibility = min(1.0, avg_mentions / 10)`. Zero social baseline = zero confidence. **Stealth accumulation requires proven social visibility to be meaningful.**
 - **buying_fear false confidence from single-entity moves**: FET $9.2M Binance hot wallet withdrawal created 95% confidence buying_fear. Was treasury ops, not accumulation. Price dropped -6.8%. buying_fear was 0/5 = 0% hit rate. Fixed: requires 2+ independent entities buying. Single-entity dominance (>80%) gets 50% discount. **Never generate high-confidence buying_fear from a single whale entity.**
@@ -280,7 +280,7 @@ curl -s "https://dashboard-six-rouge-13.vercel.app" -o /dev/null -w "HTTP status
 - **Narrative momentum needs data depth**: Shows 0.0% Stable when data window is < 24h (both halves of comparison window have similar or insufficient signals). Will differentiate naturally after 24-48 hours of continuous collection.
 - **Social coverage has structural blind spots**: We only track reddit (5 subreddits) and 4chan (/biz/). Twitter/X, Telegram, Discord, YouTube are not tracked. Claiming "the crowd hasn't noticed" based on 2 sources is inherently limited. The `social_visibility` gate mitigates this for stealth accumulation (requires avg_mentions >= 10 for full confidence), but the underlying coverage gap remains. **Adding Twitter/X API would be the single biggest improvement to signal quality.**
 - **Not yet built**: `output/api.py` (FastAPI endpoints), `output/dashboard.py` (Streamlit)
-- **Potential improvements**: Twitter/X social tracking (biggest signal quality improvement), historical price charts, portfolio tracking, alert notifications (email/telegram), multi-chain wallet tracking (Solana DEX trades via Helius/Birdeye APIs, BSC, Arbitrum), more whale wallets beyond current 105
+- **Potential improvements**: Twitter/X social tracking (biggest signal quality improvement), historical price charts, portfolio tracking, alert notifications (email/telegram), multi-chain wallet tracking (Solana DEX trades via Helius/Birdeye APIs, BSC, Arbitrum), more whale wallets beyond current 121
 
 ## Design Intent
 
@@ -344,7 +344,7 @@ CryptoDash/
 │   └── intelligence_brief.py # Natural language briefs
 │
 ├── data/
-│   └── whale_wallets.json   # 96 verified Ethereum addresses (64 exchange, 17 fund, 7 VC, 8 whale — 30 entities)
+│   └── whale_wallets.json   # 121 verified Ethereum addresses (63 exchange, 40 fund, 10 VC, 8 whale — 32 entities)
 │
 ├── supabase/
 │   ├── config.toml
