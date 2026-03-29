@@ -70,7 +70,7 @@ export default function DashboardShell({ initial }: { initial: DashboardData }) 
       <MarketMood mood={data.mood} />
 
       {/* Intelligence Alerts — THE primary section */}
-      <IntelligenceAlerts alerts={data.alerts} />
+      <IntelligenceAlerts alerts={data.alerts} lastSignalTs={data.lastSignalTs} />
 
       {/* Signal Track Record */}
       <SignalTrackRecord

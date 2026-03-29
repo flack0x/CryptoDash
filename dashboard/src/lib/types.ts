@@ -113,6 +113,7 @@ export interface SignalPerformance {
   correct72h: number;
   hitRate72h: number | null;
   pendingEvaluation: number;
+  rawEvaluated: number;
   exitHype24h: number | null;
   exitHype48h: number | null;
   exitHype72h: number | null;
@@ -226,5 +227,6 @@ export interface DashboardData {
   systemHealth: SystemHealth;
   signalPerformance: SignalPerformance;
   paperTrading: PaperTradingResult;
+  lastSignalTs: string | null;
   lastUpdated: string;
 }

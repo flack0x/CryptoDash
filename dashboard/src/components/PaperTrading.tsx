@@ -36,7 +36,7 @@ export default function PaperTrading({ data }: { data: PaperTradingResult }) {
         <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-400">
           Paper Trading
           <span className="ml-2 text-xs font-normal text-gray-500">
-            $1,000/trade &middot; spot only (dip_buy)
+            $1,000/trade &middot; spot only (Dip Buy)
           </span>
         </h2>
         <span className="text-xs text-gray-500">{expanded ? "collapse" : "expand"}</span>

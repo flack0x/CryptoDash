@@ -9,7 +9,7 @@ const typeLabels: Record<string, string> = {
   empty_hype: "Empty Hype",
   smart_money_buying_fear: "Buying Fear",
   smart_money_dip_buy: "Dip Buy",
-  smart_money_exit_hype: "Smart $ Exit",
+  smart_money_exit_hype: "Exit Hype",
 };
 
 function directionLabel(dir: string | null): { text: string; color: string } {
@@ -78,7 +78,10 @@ export default function SignalTrackRecord({
           <div className="text-lg font-bold tabular-nums text-gray-100">
             {performance.total24h}
           </div>
-          <div className="text-xs text-gray-500">Evaluated</div>
+          <div className="text-xs text-gray-500">Unique Signals</div>
+          {performance.rawEvaluated > performance.total24h && (
+            <div className="text-xs text-gray-600 tabular-nums">{performance.rawEvaluated} total</div>
+          )}
         </div>
         <div className="rounded-md bg-gray-800/50 px-3 py-2 text-center">
           <div className="text-lg font-bold tabular-nums text-gray-100">

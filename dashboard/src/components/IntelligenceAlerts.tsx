@@ -230,7 +230,7 @@ function AlertCard({ alert }: { alert: EnrichedAlert }) {
   );
 }
 
-export default function IntelligenceAlerts({ alerts }: { alerts: EnrichedAlert[] }) {
+export default function IntelligenceAlerts({ alerts, lastSignalTs }: { alerts: EnrichedAlert[]; lastSignalTs?: string | null }) {
   const uniqueTypes = new Set(alerts.map((a) => a.alert_type));
   const isMonotone = alerts.length > 0 && uniqueTypes.size === 1;
 
@@ -247,7 +247,12 @@ export default function IntelligenceAlerts({ alerts }: { alerts: EnrichedAlert[]
         )}
       </div>
       {alerts.length === 0 ? (
-        <p className="text-gray-500">No active signals — monitoring 105 wallets across 7 data sources</p>
+        <div className="space-y-1">
+          <p className="text-gray-500">No active signals — monitoring 136 wallets across 7 data sources</p>
+          {lastSignalTs && (
+            <p className="text-xs text-gray-600">Last signal: {timeAgo(lastSignalTs)}</p>
+          )}
+        </div>
       ) : (
         <div className="space-y-2">
           {alerts.map((a) => (

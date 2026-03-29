@@ -570,6 +570,7 @@ async function getSignalPerformance(): Promise<SignalPerformance> {
     pendingKeys.add(`${a.coin_id}:${a.alert_type}`);
   }
 
+  const rawEvaluated = evaluated?.length ?? 0;
   const total24h = evalMap24.size;
   const correct24h = [...evalMap24.values()].filter(Boolean).length;
   const total48h = evalMap48.size;
@@ -596,6 +597,7 @@ async function getSignalPerformance(): Promise<SignalPerformance> {
     entries.length > 0 ? countCorrect(entries) / entries.length : null;
 
   return {
+    rawEvaluated,
     total24h, correct24h,
     hitRate24h: total24h > 0 ? correct24h / total24h : null,
     total48h, correct48h,
@@ -755,8 +757,17 @@ function emptyPaperResult(): PaperTradingResult {
   };
 }
 
+async function getLastAlertTs(): Promise<string | null> {
+  const { data } = await supabase
+    .from("intelligence_alerts")
+    .select("ts")
+    .order("ts", { ascending: false })
+    .limit(1);
+  return data?.[0]?.ts ?? null;
+}
+
 export async function fetchDashboardData(): Promise<DashboardData> {
-  const [mood, alerts, trending, movers, narratives, socialBuzz, whaleActivity, whaleNetFlows, evaluatedSignals, systemHealth, signalPerformance, paperTrading] = await Promise.all([
+  const [mood, alerts, trending, movers, narratives, socialBuzz, whaleActivity, whaleNetFlows, evaluatedSignals, systemHealth, signalPerformance, paperTrading, lastSignalTs] = await Promise.all([
     getLatestMood(),
     getAlerts(),
     getTrending(),
@@ -769,6 +780,7 @@ export async function fetchDashboardData(): Promise<DashboardData> {
     getSystemHealth(),
     getSignalPerformance(),
     getPaperTrading(),
+    getLastAlertTs(),
   ]);
 
   return {
@@ -785,6 +797,7 @@ export async function fetchDashboardData(): Promise<DashboardData> {
     systemHealth,
     signalPerformance,
     paperTrading,
+    lastSignalTs,
     lastUpdated: new Date().toISOString(),
   };
 }
